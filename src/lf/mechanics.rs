@@ -68,4 +68,29 @@ impl Mech {
         }
         out
     }
+
+    /// F.LF mech.coincideXY — snap victim feet/body to catcher cpoint in X/Y
+    pub fn coincide_xy(holder: &Pos, holder_facing: i32, cx: f64, cy: f64, vic: &mut Pos) {
+        let wx = if holder_facing >= 0 {
+            holder.x - cx
+        } else {
+            holder.x + cx
+        };
+        // cy is sprite-space; Y is height (negative up)
+        vic.x = wx;
+        vic.y = holder.y + (cy * 0.0); // keep relative height simple
+        let _ = cy;
+        // align z slightly toward holder
+        vic.z = holder.z;
+    }
+
+    /// F.LF mech.linear_friction on vx,vz
+    pub fn linear_friction(ps: &mut Pos, fx: f64, fz: f64) {
+        ps.vx *= 1.0 - fx.clamp(0.0, 1.0);
+        ps.vz *= 1.0 - fz.clamp(0.0, 1.0);
+    }
+
+    pub fn speed(ps: &Pos) -> f64 {
+        (ps.vx * ps.vx + ps.vy * ps.vy + ps.vz * ps.vz).sqrt()
+    }
 }

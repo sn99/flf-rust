@@ -134,7 +134,7 @@ impl Character {
                 9 => { self.catch_counter = 43; self.catch_attacks = 0; }
                 11 => { self.base.trans.inc_wait(0, 20, 1); }
                 14 => { self.base.fall = 0.0; self.base.bdefend = 0.0; }
-                1700 => { self.base.effect.timeout = 30; self.base.effect.super_armor = true; }
+                1700 => { self.base.effect.heal = global::HEAL_MAX; }
                 _ => {}
             }
             self.last_state = state;

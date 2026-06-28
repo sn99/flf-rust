@@ -916,7 +916,10 @@ impl Manager {
                     }
                     Screen::Gameplay => {
                         if key == "F4" {
-                            g.cycle_view_mode();
+                            // F.LF match F4 ends match; maximize via button / F10
+                            if let Some(m) = g.match_game.as_mut() {
+                                m.f4_end_match();
+                            }
                         } else if k == "escape" {
                             g.match_game = None;
                             g.show_screen(Screen::FrontPage);
@@ -969,7 +972,18 @@ impl Manager {
                                 m.overlay_message("F7 HP/MP refill");
                             }
                         } else if key == "F8" {
+                            // F.LF F8 drop_weapons
+                            if let Some(m) = g.match_game.as_mut() {
+                                m.drop_weapons();
+                            }
+                        } else if key == "F9" {
+                            if let Some(m) = g.match_game.as_mut() {
+                                m.destroy_weapons();
+                            }
+                        } else if key == "F11" {
                             g.toggle_renderer_backend();
+                        } else if key == "F10" {
+                            g.cycle_view_mode();
                         }
                     }
                 }
@@ -1152,7 +1166,7 @@ impl Manager {
             if let Some(m) = self.match_game.as_mut() {
                 self.renderer.clear("#000");
                 m.render(&mut self.renderer);
-                // Optional DOM sprite overlay (F.LF sprite-dom); F8 toggles
+                // Optional DOM sprite overlay (F.LF sprite-dom); F11 toggles
                 if self.renderer_kind == RendererKind::Dom {
                     if let Some(dom) = self.dom_layer.as_mut() {
                         dom.cam_x = m.camera_x;

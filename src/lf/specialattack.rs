@@ -7,6 +7,9 @@ pub struct SpecialAttack {
     pub base: LivingObject,
     /// opoint spawned this frame
     pub opoint_done: bool,
+    /// Chase target world position (F.LF chase_target)
+    pub chase_x: f64,
+    pub chase_z: f64,
 }
 
 impl SpecialAttack {
@@ -14,6 +17,8 @@ impl SpecialAttack {
         let mut s = Self {
             base: LivingObject::new(uid, data, team, x, z),
             opoint_done: false,
+            chase_x: f64::NAN,
+            chase_z: f64::NAN,
         };
         s.base.ps.y = y;
         s.base.facing = facing;

@@ -380,9 +380,15 @@ impl Match {
         }
         drop(ctrls);
 
-        // Teleport 400/401 (character.js)
+        // Chase ball targeting (F.LF specialattack chase_target) before specials TU continues in interactions
+        self.update_special_chase_targets();
+
+        // Teleport 400/401 on frame entry only (character.js states 400/401 `frame`)
         let n = self.characters.len();
         for i in 0..n {
+            if !self.characters[i].base.statemem_frame_tu {
+                continue;
+            }
             let st = self.characters[i].base.state();
             if st != 400 && st != 401 {
                 continue;
@@ -1920,12 +1926,6 @@ impl Match {
         self.create_object(id, 0, x, 0.0, z, 1, 0, 0.0, 0.0);
     }
 
-    pub fn destroy_weapons(&mut self) {
-        for w in &mut self.weapons {
-            w.die();
-        }
-    }
-
     pub fn drop_weapons_setup(&mut self, positions: &[(f64, f64)]) {
         let ids = [100i32, 101, 150, 151];
         for (i, &(x, z)) in positions.iter().enumerate() {
@@ -1971,9 +1971,88 @@ impl Match {
     pub fn F7_refill(&mut self) {
         for ch in &mut self.characters {
             ch.base.hp = ch.base.hp_full;
+            ch.base.hp_bound = ch.base.hp_full;
             ch.base.mp = ch.base.mp_full;
             ch.base.dead = false;
             ch.base.removed = false;
+        }
+    }
+
+    /// F.LF match.F4 — end match / destroy
+    pub fn f4_end_match(&mut self) {
+        self.game_over = true;
+        self.overlay_message("MATCH END (F4)");
+        self.overlay_ttl = 9999;
+    }
+
+    /// F.LF match.drop_weapons — spawn random light weapons on field
+    pub fn drop_weapons(&mut self) {
+        let positions: Vec<(f64, f64)> = self
+            .characters
+            .iter()
+            .filter(|c| !c.base.removed)
+            .map(|c| (c.base.ps.x + 40.0, c.base.ps.z))
+            .collect();
+        if positions.is_empty() {
+            let mid = self.background.width / 2.0;
+            let z = (self.background.zboundary.0 + self.background.zboundary.1) / 2.0;
+            self.drop_weapons_setup(&[(mid, z), (mid + 80.0, z)]);
+        } else {
+            self.drop_weapons_setup(&positions);
+        }
+        self.overlay_message("F8 drop weapons");
+    }
+
+    /// F.LF match.destroy_weapons
+    pub fn destroy_weapons(&mut self) {
+        for w in &mut self.weapons {
+            w.base.hp = 0.0;
+            w.held = false;
+            w.base.removed = true;
+            w.die();
+        }
+        for ch in &mut self.characters {
+            ch.hold_weapon = None;
+            ch.base.holding_uid = None;
+            ch.base.hold_type.clear();
+        }
+        self.overlay_message("F9 destroy weapons");
+    }
+
+    /// Update chase ball targets (nearest enemy to ball team)
+    pub fn update_special_chase_targets(&mut self) {
+        for sp in &mut self.specials {
+            if sp.base.removed {
+                continue;
+            }
+            let st = sp.base.state();
+            let hit_fa = sp
+                .base
+                .frame_data()
+                .map(|f| f.hit_Fa)
+                .unwrap_or(0);
+            if hit_fa == 0 && !(3002..=3010).contains(&st) {
+                continue;
+            }
+            let team = sp.base.team;
+            let sx = sp.base.ps.x;
+            let sz = sp.base.ps.z;
+            let mut best = None;
+            let mut best_d = f64::MAX;
+            for ch in &self.characters {
+                if ch.base.removed || ch.base.hp <= 0.0 || ch.base.team == team {
+                    continue;
+                }
+                let d = (ch.base.ps.x - sx).hypot(ch.base.ps.z - sz);
+                if d < best_d {
+                    best_d = d;
+                    best = Some((ch.base.ps.x, ch.base.ps.z));
+                }
+            }
+            if let Some((x, z)) = best {
+                sp.chase_x = x;
+                sp.chase_z = z;
+            }
         }
     }
 

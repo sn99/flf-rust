@@ -29,6 +29,8 @@ pub struct EffectState {
     pub super_armor: bool,
     pub timein: i32,
     pub timeout: i32,
+    /// John heal pool (F.LF effect.heal); drained into HP every 8 TU by +8
+    pub heal: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -56,8 +58,12 @@ pub struct LivingObject {
     pub facing: i32, // 1 right, -1 left (dirh)
     pub hp: f64,
     pub hp_full: f64,
+    /// Dark HP bar ceiling (F.LF health.hp_bound); injury reduces by ceil(inj/3)
+    pub hp_bound: f64,
     pub mp: f64,
     pub mp_full: f64,
+    pub mp_usage: f64,
+    pub hp_lost: f64,
     pub fall: f64,
     pub bdefend: f64,
     pub arest: i32,
@@ -108,8 +114,11 @@ impl LivingObject {
             facing: 1,
             hp: global::HP_FULL,
             hp_full: global::HP_FULL,
+            hp_bound: global::HP_FULL,
             mp: global::MP_START,
             mp_full: global::MP_FULL,
+            mp_usage: 0.0,
+            hp_lost: 0.0,
             fall: 0.0,
             bdefend: 0.0,
             arest: 0,
@@ -387,23 +396,43 @@ impl LivingObject {
         itr_kind: i32,
     ) -> (bool, i32) {
         if injury < 0.0 {
-            self.hp = (self.hp - injury).min(self.hp_full);
+            // heal
+            self.hp = (self.hp - injury).min(self.hp_bound.max(0.0).min(self.hp_full));
             return (false, -1);
         }
+        let st = self.state();
+        // F.LF immunities: lying ignore; ice vs effect 30; fire run vs special 3000; burn/firerun immunities
+        if st == 14 {
+            return (false, -1);
+        }
+        if st == 13 && effect_num == 30 {
+            return (false, -1);
+        }
+        if (st == 18 || st == 19) && (effect_num == 20 || effect_num == 21) {
+            return (false, -1);
+        }
+        if st == 19 && itr_kind == 0 && effect_num == 0 {
+            // firerun vs light ball — handled by match for special 3000; keep armor soft
+        }
         if self.effect.super_armor && itr_kind != 8 {
-            self.hp = (self.hp - injury * 0.35).max(0.0);
-            self.injury_total += injury * 0.35;
+            let soft = injury * 0.35;
+            self.hp = (self.hp - soft).max(0.0);
+            self.injury_total += soft;
+            self.hp_lost += soft;
+            self.hp_bound = (self.hp_bound - (soft / 3.0).ceil()).max(0.0);
             return (false, effect_num);
         }
 
         let mut inj = injury;
         // flute force kinds 10/11 double injury while falling
-        if (itr_kind == 10 || itr_kind == 11) && self.state() == 12 {
+        if (itr_kind == 10 || itr_kind == 11) && st == 12 {
             inj *= 2.0;
         }
 
         self.hp -= inj;
         self.injury_total += inj;
+        self.hp_lost += inj;
+        self.hp_bound = (self.hp_bound - (inj / 3.0).ceil()).max(0.0);
         if self.hp < 0.0 {
             self.hp = 0.0;
         }
@@ -588,14 +617,36 @@ impl LivingObject {
                 }
             }
         }
-        // slow mp regen (LF2 ~1/3 per TU on ground; slower in air)
-        if self.mp < self.mp_full {
-            let rate = if self.ps.y >= 0.0 { 1.0 / 3.0 } else { 1.0 / 8.0 };
+        // F.LF generic TU MP regen every 3 TU on ground (HP-scaled); slower in air
+        // approximate continuous form of every-3-TU burst
+        if self.mp < self.mp_full && self.hp > 0.0 {
+            let ratio = (self.hp / self.hp_full).clamp(0.0, 1.0);
+            let rate = if self.ps.y >= 0.0 {
+                (1.0 + ratio) / 3.0
+            } else {
+                1.0 / 8.0
+            };
             self.mp = (self.mp + rate).min(self.mp_full);
         }
-        // passive hp drip only while dead-blink not active and not removed
-        if self.hp > 0.0 && self.hp < self.hp_full && self.counter_dead_blink < 0 && self.ps.y >= 0.0 {
-            // extremely slow passive — disabled by default; heal state handles real regen
+        // F.LF effect.heal: every 8 TU +8 HP while heal pool remains
+        if self.effect.heal > 0.0 && self.hp > 0.0 {
+            // continuous: 8 HP / 8 TU = 1 HP/TU
+            let take = 1.0_f64.min(self.effect.heal);
+            let room = (self.hp_bound.max(0.0).min(self.hp_full) - self.hp).max(0.0);
+            let add = take.min(room);
+            self.hp += add;
+            self.effect.heal -= take;
+            if self.effect.heal < 0.0 {
+                self.effect.heal = 0.0;
+            }
+        }
+        // slow passive HP toward hp_bound every 12 TU ≈ 1/12 per TU
+        if self.hp > 0.0
+            && self.hp < self.hp_bound
+            && self.counter_dead_blink < 0
+            && self.ps.y >= 0.0
+        {
+            self.hp = (self.hp + 1.0 / 12.0).min(self.hp_bound);
         }
         // effect timein: delay before stuck applies (Davis hit_stop pattern)
         if self.effect.timein > 0 {

@@ -1,31 +1,54 @@
 # flf-rust vs Project-F/F.LF
 
-## Is Rust complete 1-on-1 with F.LF?
+Repos: [sn99/flf-rust](https://github.com/sn99/flf-rust) · [Project-F/F.LF](https://github.com/Project-F/F.LF)
 
-**Playable complete game:** **Yes** via **`/game/game.html`** (hosts F.LF JS + LF2_19).
+## Is the Rust version complete 1-on-1?
 
-**Formal bit-identical certification for `/rust/` WASM:** **Partial** — F.Lobby 0.1 client + core/network lockstep + TU dump harness are implemented; green formal checklist requires a live F.Lobby peer session and matching TU dumps vs JS F.LF under identical inputs.
+### Formal bit-identical certification: **No**
 
-## Implemented toward parity
+Line-for-line TU identity with stock F.LF under lockstep verify is **not proven**. Differences remain in event ordering nuances, some catch/weapon edge cases, parallax/leaving fidelity, and manager sprite-animator UI.
 
-1. character_states event matrix, match tasks, combat, weapons/specials/effects  
-2. AI AIin.frame via `ai_bridge.js` + package AI selection  
-3. **F.Lobby 0.1 client** (`www/js/flobby.js`): GET `/protocol`, lobby iframe, `postMessage` protocol `F.Lobby 0.1`, start → network setup  
-4. **core/network lockstep** (`www/js/network_core.js`): frame buffer `{f:{t,d}}`, transfer/messenger, LF control verify layer; PeerJS + BroadcastChannel transport fallback when lobby library unavailable  
-5. PeerJS room glue + Rust `NetworkSession` BroadcastChannel  
-6. **`match.game_state()`** F.LF shape `{ time, "i": [x,y,z,hp,mp] }` exposed as `window.__flf_game_state`  
-7. **TU harness** (`www/js/tu_harness.js`, `www/tu_compare.html`): `?tu_dump=1` → `__flf_tu_download()` → compare dumps  
-8. Manager key rebind, F1–F7, summary, maximize/pause  
+### Playable / feature-complete port: **Yes, for VS 1v1**
 
-## Remaining for formal all-green
+| Surface | Verdict |
+|---------|---------|
+| Character states 0–16, 18–19, 301, 400–401, 501, 1700 | Present with deep handlers (fall chain, crouch dash, heal, broken-defend force, immunities) |
+| LivingObject injure / heal / hp_bound / regen | Aligned with F.LF formulas (subset of posteffect tables) |
+| Match combat, weapons, specials, chase balls | Implemented; specials chase + weapon state dispatch |
+| AI AIin + LF2_19 scripts (`TU()`) | `ai_bridge` + embedded sources + heuristics fallback |
+| Manager menus, keychanger, network F.Lobby client | Present (HTML overlays vs Fsprite menus) |
+| Lockstep / F.Lobby 0.1 client | Present (Peer/BC fallback if lobby CORS blocks) |
+| Canvas + optional DOM sprites | Present (F11) |
+| Stage mode / full LF2 campaign | **Not** required for 1v1; **not** ported |
 
-- Run TU dumps vs stock F.LF under recorded inputs and fix divergences  
-- Optional sprite-dom backend (F.LF also supports canvas)  
-- Live F.Lobby server transport library when CORS/hosting allows  
-
-## Honest two-tier
+### Honest two-tier hosting
 
 | URL | Role |
 |-----|------|
-| `/game/game.html` | Complete F.LF JS + LF2_19 (1:1 play) |
-| `/rust/` | Advanced WASM port with F.Lobby client + lockstep + TU tools |
+| `/game/game.html` | **Stock F.LF JS + LF2_19** — true upstream 1:1 play |
+| `/rust/` | **Rust/WASM engine** — comprehensive port, not formally bit-certified |
+
+## This pass implemented (critical gaps)
+
+1. **Heal state 1700** + `effect.heal` drain + `hp_bound` / `hp_lost` on injury  
+2. **Fall state 12** full `frame` chain (180–189 / upward)  
+3. **State 8** knockback force vs facing  
+4. **State 15** crouch dash 213/214/210  
+5. **Injure immunities** (lie, ice/fire run, super armor + hp_bound)  
+6. **MP/HP regen** closer to F.LF generic TU  
+7. **Mechanics** `coincide_xy`, `linear_friction`, `speed`  
+8. **Weapon / special state dispatch** + **chase_target** for 300X / hit_Fa  
+9. **F-keys** aligned with F.LF match: F4 end, F8 drop weapons, F9 destroy; F10 view, F11 DOM  
+10. Teleport 400/401 only on frame entry  
+
+## Remaining (non-blocking for playable 1v1)
+
+- Exact `TU_trans` phase split (transit-all → tasks → TU-all) for cert dumps  
+- Full `character.prototype.hit` defend injury tables / posteffect atlas  
+- Full catch `caught_*` / coincide timing  
+- Background parallax ratios + `leaving()`  
+- Manager Fsprite_dom + Fanimator char-select  
+- Stage / battle / demo modes  
+- Live F.Lobby transport library when CORS allows  
+- Recorded TU dump green vs JS F.LF  
+

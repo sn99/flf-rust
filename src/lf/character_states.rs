@@ -79,8 +79,16 @@ fn generic(ch: &mut Character, event: &str) {
             ch.base.opoint_spawned = false; // allow opoint this frame — match sets true after spawn
         }
         "TU" => {
-            // disappear handled in character_ids; dead blink in character tu
+            // disappear / dead blink handled in character_ids + character tu
+            // heal/mp/hp regen in LivingObject::recover_tu (F.LF generic TU)
         }
+        "transit" => {
+            // dynamics + wpoint applied in physics_tu / match hold sync
+        }
+        "post_combo" => {
+            // pre_interaction timing — catch/pick on next frame; handled in match itr loop
+        }
+        "state_exit" => {}
         _ => {}
     }
 }
@@ -479,10 +487,24 @@ fn state7(ch: &mut Character, event: &str, _key: Option<&str>) -> Option<i32> {
 }
 
 fn state8(ch: &mut Character, event: &str, _key: Option<&str>) -> Option<i32> {
-    if event == "TU" {
-        ch.base.bdefend = (ch.base.bdefend - 2.0).max(0.0);
+    // F.LF states[8]: frame_force / TU_force — compensate vx vs facing when dvx fights dirh
+    // bdefend recover is generic TU (recover_tu), not here
+    match event {
+        "frame_force" | "TU_force" | "TU" => {
+            let dirh = ch.base.facing as f64;
+            if let Some(fd) = ch.base.frame_data() {
+                let dvx = fd.dvx;
+                if dvx != 0.0 && dvx as i32 != global::UNSPECIFIED {
+                    // if dvx is applied against facing, force vx in knockback direction
+                    if (dvx > 0.0 && dirh < 0.0) || (dvx < 0.0 && dirh > 0.0) {
+                        ch.base.ps.vx = dvx.abs() * -dirh;
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
-    None
 }
 
 fn state9(ch: &mut Character, event: &str, key: Option<&str>) -> Option<i32> {
@@ -604,7 +626,60 @@ fn state11(ch: &mut Character, event: &str, _key: Option<&str>) -> Option<i32> {
 fn state12(ch: &mut Character, event: &str, key: Option<&str>) -> Option<i32> {
     match event {
         "frame" => {
-            // fall frame chain — also in character.state12_fall_tu
+            // F.LF states[12] frame chain from effect.dvy and vy
+            let dvy = ch.base.effect.dvy;
+            let n = ch.base.frame.n;
+            if dvy <= 0.0 {
+                match n {
+                    180 => {
+                        ch.base.trans.set_next(181, 10);
+                        // wait tiers from effect.dvy magnitude (GC.fall.wait180)
+                        let w = if dvy.abs() < 1.0 {
+                            3
+                        } else if dvy.abs() < 3.0 {
+                            2
+                        } else {
+                            1
+                        };
+                        ch.base.trans.set_wait(w, 10, 1);
+                    }
+                    181 => {
+                        ch.base.trans.set_next(182, 10);
+                        let mut vy = ch.base.ps.vy.abs();
+                        if ch.base.ps.vy == 0.0 {
+                            ch.base.ps.vy = 5.0;
+                            vy = 5.0;
+                        }
+                        let w = if vy <= 4.0 {
+                            2
+                        } else if vy < 7.0 {
+                            3
+                        } else {
+                            4
+                        };
+                        ch.base.trans.set_wait(w, 10, 1);
+                    }
+                    182 => ch.base.trans.set_next(183, 10),
+                    186 => {
+                        if ch.base.ps.vy == 0.0 {
+                            ch.base.ps.vy = 5.0;
+                        }
+                        ch.base.trans.set_next(187, 10);
+                    }
+                    187 => ch.base.trans.set_next(188, 10),
+                    188 => ch.base.trans.set_next(189, 10),
+                    _ => {}
+                }
+            } else {
+                match n {
+                    180 => {
+                        ch.base.trans.set_next(185, 10);
+                        ch.base.trans.set_wait(1, 10, 1);
+                    }
+                    186 => ch.base.trans.set_next(191, 10),
+                    _ => {}
+                }
+            }
             None
         }
         "fall_onto_ground" | "fell_onto_ground" => {
@@ -731,8 +806,31 @@ fn state15(ch: &mut Character, event: &str, key: Option<&str>) -> Option<i32> {
                 return Some(COMBO_CONSUMED);
             }
             if k == "jump" {
-                // dash variants from crouch — simplified in handle_input too
-                ch.base.trans_frame(213, 10);
+                // F.LF state15 crouch dash: facing vs held left/right → 213/214/210
+                let left = ch.last_left;
+                let right = ch.last_right;
+                let dirh = ch.base.facing;
+                let vx = ch.base.ps.vx;
+                let frame = if left && !right {
+                    if dirh > 0 {
+                        214
+                    } else {
+                        213
+                    }
+                } else if right && !left {
+                    if dirh > 0 {
+                        213
+                    } else {
+                        214
+                    }
+                } else if vx.abs() < 1.0 {
+                    210 // jump up from crouch
+                } else if (vx > 0.0) == (dirh > 0) {
+                    213
+                } else {
+                    214
+                };
+                ch.base.trans_frame(frame, 10);
                 return Some(COMBO_CONSUMED);
             }
             None
@@ -807,9 +905,9 @@ fn state501(ch: &mut Character, event: &str, _key: Option<&str>) -> Option<i32> 
 }
 
 fn state1700(ch: &mut Character, event: &str, _key: Option<&str>) -> Option<i32> {
-    if event == "frame" {
-        ch.base.effect.timeout = 30;
-        ch.base.effect.super_armor = true;
+    // F.LF states[1700]: set effect.heal = heal_max on frame entry
+    if event == "frame" || event == "state_entry" {
+        ch.base.effect.heal = global::HEAL_MAX;
     }
     None
 }
