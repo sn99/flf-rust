@@ -203,6 +203,39 @@ impl Match {
         }
         drop(ctrls);
 
+        // Teleport 400/401 (character.js)
+        let n = self.characters.len();
+        for i in 0..n {
+            let st = self.characters[i].base.state();
+            if st != 400 && st != 401 {
+                continue;
+            }
+            let team = self.characters[i].base.team;
+            let enemies = crate::lf::scene::query_characters(
+                &self.characters,
+                i,
+                crate::lf::scene::QueryOpts {
+                    team: None,
+                    not_team: Some(team),
+                    sort_distance: true,
+                    reverse: false,
+                },
+            );
+            let allies = crate::lf::scene::query_characters(
+                &self.characters,
+                i,
+                crate::lf::scene::QueryOpts {
+                    team: Some(team),
+                    not_team: None,
+                    sort_distance: true,
+                    reverse: true,
+                },
+            );
+            let ne = enemies.first().map(|&j| (self.characters[j].base.ps.x, self.characters[j].base.ps.z));
+            let fa = allies.first().map(|&j| (self.characters[j].base.ps.x, self.characters[j].base.ps.z));
+            self.characters[i].apply_teleport_targets(ne, fa);
+        }
+
         // frame sounds
         for ch in &mut self.characters {
             if let Some(path) = ch.base.take_sound() {

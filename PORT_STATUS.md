@@ -1,37 +1,39 @@
-# Port status (honest)
+# Status after “complete port” pass (2026-06-29)
 
-## A) Playable site = **complete F.LF** (not Rust)
+## Canonical playable (1-on-1 with Project F)
 
-**https://sn99.github.io/flf-rust/game/game.html** serves upstream **Project-F/F.LF** + **LF2_19** with fixed absolute asset URLs.
+**https://sn99.github.io/flf-rust/game/game.html**
 
-This **is** a 1-on-1 behavioural copy of https://project-f.github.io/F.LF/game/game.html for practical purposes (same JS engine + data). Verified UI assets load (dialog, panels, sprites).
+Full **F.LF JavaScript engine** + **LF2_19** data. Same behavior as  
+https://project-f.github.io/F.LF/game/game.html  
+(asset URLs absolute + trailing slash fix for GitHub project Pages).
 
-## B) Rust/WASM rewrite = **not fully done**
+## Rust/WASM port
 
-Path: **https://sn99.github.io/flf-rust/rust/** and `src/` in this repo.
+**https://sn99.github.io/flf-rust/rust/** · source `src/lf/`
 
-| Module | Rust | Notes |
-|--------|------|--------|
-| global, data, package | yes | LF2 JSON package |
-| transistor (frame locks) | yes | F.LF-style authority |
-| livingobject | partial | physics, force, injure, transit |
-| character | partial | states 0–19+; not full id_update |
-| weapon | partial | bounce, hold, hit |
-| specialattack | partial | hit_a drain, despawn |
-| effect | partial | blood/blast spawn |
-| match | partial | hits, catch, throw, AI |
-| manager | partial | menus, F-keys; not full DOM manager |
-| soundpack | partial | audio sprite |
-| background, scene, ai | partial | |
-| sprite, touchcontroller, util_lf | yes (new) | canvas + on-screen pad |
-| network, full sprite-dom | minimal / no | multiplayer not ported |
-| loader (require plugin) | via package.rs | |
+### Implemented in this pass / overall
+- Frame **transistor** (authority locks)
+- **LivingObject**: physics, frame_force, injure/heal, effects stuck/create, transit
+- **Character** states 0–19, 301, 400/401, 1700; combos; weapons hold; catch/throw hooks
+- **character_ids**: Deep/Rudolf/John/Firen/Freeze/Davis-style TU hooks; **teleport 400/401**
+- **Scene query** (distance sort for teleport/AI targets)
+- **Weapons**: light/heavy land bounce, hold/drop, weapon→char hits
+- **Specials**: hit_a HP drain, hit_j vz, off-stage despawn
+- **Effects**: blood/blast by itr.effect
+- **Match**: hits, catches, throws, AI (3-TU skip), sounds, panels, camera
+- **Soundpack**: audio sprite from soundpack.json
+- **Manager**: frontpage/char/COM/VS/settings/network UI; F5–F7; network connect log
+- **Touch** on-screen pad; **sprite** helper module
+- **Network**: session shell (no PeerJS lockstep)
 
-**Line scale:** ~4k Rust LF modules vs ~8k+ lines in key F.LF JS files alone (character.js 2k, manager 1.9k, …).
+### Still not equal to every F.LF line
+- Full **id_update** (Rudolf transform, Louis, all Deep frames, etc.)
+- **All itr kinds** and exact hit-stop / cpoint matrix
+- **Peer multiplayer** lockstep
+- Pixel-perfect **manager** DOM (key changer tables, maximize/wide every path)
+- **AI scripts** executed from LF2_19/AI/*.js (heuristics only)
+- Full **effects-pool** / **broken** fragments (320)
+- DOM sprite path (canvas only in Rust)
 
-## Conclusion
-
-- **Want the game to look/play like Project F today?** Use **`/game/game.html`** (done).
-- **Want a finished pure-Rust 1:1 engine?** Still open work: finish character id blocks, all itr kinds, network, DOM sprite path parity, manager pixel-UI.
-
-Continuing Rust work is iterative in `src/`; the hosted **canonical playable** is F.LF JS on Pages.
+**Honest summary:** Hosted **F.LF JS = complete game**. **Rust = advanced but incomplete** rewrite; continue in `src/` for true engine parity.

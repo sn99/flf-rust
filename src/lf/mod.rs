@@ -4,6 +4,7 @@ pub mod manager;
 pub mod match_game;
 pub mod livingobject;
 pub mod character;
+pub mod character_ids;
 pub mod weapon;
 pub mod specialattack;
 pub mod effect;

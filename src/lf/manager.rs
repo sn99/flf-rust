@@ -502,8 +502,37 @@ impl Manager {
                     }
                 }
                 if cancel {
+                    g.network.disconnect();
                     g.show_screen(Screen::FrontPage);
                 }
+                // connect button
+                let mut el = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                let mut is_connect = false;
+                let mut walk = el.clone();
+                while let Some(e) = walk {
+                    if e.class_list().contains("server_connect") {
+                        is_connect = true;
+                        break;
+                    }
+                    walk = e.parent_element().and_then(|p| p.dyn_into().ok());
+                }
+                if is_connect {
+                    let addr = document()
+                        .query_selector(".server_address")
+                        .ok()
+                        .flatten()
+                        .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
+                        .map(|i| i.value())
+                        .unwrap_or_default();
+                    let server = if addr.is_empty() {
+                        "http://lobby.projectf.hk".into()
+                    } else {
+                        addr
+                    };
+                    g.network.connect(&server, "active");
+                    g.render_network_dom();
+                }
+                let _ = el;
                 if let Some(bg) = data_bg.and_then(|s| s.parse().ok()) {
                     g.selected_bg = bg;
                     if g.screen == Screen::CharacterSelect {

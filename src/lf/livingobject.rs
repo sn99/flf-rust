@@ -339,11 +339,16 @@ impl LivingObject {
             self.mp = (self.mp + 1.0 / 3.0).min(self.mp_full);
         }
         // effect timeout
+        if self.effect.timein > 0 {
+            self.effect.timein -= 1;
+        }
         if self.effect.timeout > 0 {
             self.effect.timeout -= 1;
             if self.effect.timeout == 0 {
                 self.effect.blink = false;
                 self.effect.stuck = false;
+                self.effect.super_armor = false;
+                self.effect.num = -99;
             }
         }
         if self.statemem_attlock > 0 {
@@ -352,6 +357,22 @@ impl LivingObject {
     }
 
     /// Physics + frame wait (base TU without character input)
+    pub fn effect_stuck(&mut self, timein: i32, timeout: i32) {
+        self.effect.stuck = true;
+        self.effect.timein = timein;
+        self.effect.timeout = timeout;
+    }
+
+    pub fn effect_create(&mut self, num: i32, duration: i32, dvx: f64, dvy: f64) {
+        self.effect.num = num;
+        self.effect.timeout = duration;
+        self.effect.dvx = dvx;
+        self.effect.dvy = dvy;
+        if num == 0 {
+            self.effect.super_armor = true;
+        }
+    }
+
     pub fn physics_tu(&mut self, zbound: (f64, f64), bg_width: f64) {
         if self.removed || self.effect.stuck {
             return;

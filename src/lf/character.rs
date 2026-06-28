@@ -485,28 +485,16 @@ impl Character {
     }
 
     pub fn id_frame_hook(&mut self) {
-        let id = self.base.id;
-        let n = self.base.frame.n;
-        match id {
-            11 => { /* Davis */ }
-            1 => {
-                if n == 253 { /* deep fly */ }
-            }
-            5 => { /* Rudolf */ }
-            2 => {
-                if (240..280).contains(&n) {
-                    self.base.effect.super_armor = true;
-                }
-            }
-            7 | 8 => {}
-            6 => { /* Louis */ }
-            10 => { /* Woody */ }
-            _ => {}
-        }
-        // teleport states 400/401: snap handled if we had targets — placeholder
-        if self.base.state() == 400 || self.base.state() == 401 {
-            // brief invuln
-            self.base.effect.super_armor = true;
-        }
+        crate::lf::character_ids::id_tu(self);
+    }
+
+    /// Teleport after match provides targets
+    pub fn apply_teleport_targets(
+        &mut self,
+        nearest_enemy: Option<(f64, f64)>,
+        furthest_ally: Option<(f64, f64)>,
+    ) {
+        crate::lf::character_ids::apply_teleport(self, nearest_enemy, furthest_ally);
     }
 }
+
