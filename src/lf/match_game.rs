@@ -65,6 +65,8 @@ pub struct Match {
     pub panel_remap: std::collections::HashMap<u32, u32>,
     /// F.LF F6 infinite mp mode
     pub f6_mode: bool,
+    /// Basenames of AI scripts from LF2_19 AI list (e.g. dumbass, Crusher)
+    pub ai_script_pool: Vec<String>,
 }
 
 impl Match {
@@ -131,15 +133,32 @@ impl Match {
                 ch.base.set_mass(mass);
             }
         }
-        let ai_brains = characters.iter().map(|c| {
+        let pool = package
+            .data_list
+            .AI
+            .iter()
+            .filter_map(|e| {
+                let f = e.file.rsplit('/').next().unwrap_or(&e.file);
+                let name = f.trim_end_matches(".js").trim_end_matches(".as");
+                if name.is_empty() { None } else { Some(name.to_string()) }
+            })
+            .collect::<Vec<_>>();
+        let ai_brains = characters.iter().enumerate().map(|(i, c)| {
                 let mut b = crate::lf::ai::AiBrain::default();
-                // prefer named scripts by character id heuristics
-                b.script_name = match c.base.id {
-                    1 => "Crusher".into(),
-                    5 => "Ninja".into(),
-                    9 => "Challangar".into(),
-                    _ => "dumbass".into(),
-                };
+                let by_obj = package.object_entry(c.base.id).and_then(|e| e.AI).and_then(|ai_i| {
+                    package.data_list.AI.get(ai_i as usize).map(|ae| {
+                        let f = ae.file.rsplit('/').next().unwrap_or(&ae.file);
+                        f.trim_end_matches(".js").trim_end_matches(".as").to_string()
+                    })
+                });
+                b.script_name = by_obj.or_else(|| pool.get(i % pool.len().max(1)).cloned()).unwrap_or_else(|| {
+                    match c.base.id {
+                        1 => "Crusher".into(),
+                        5 => "Ninja".into(),
+                        9 => "Challangar".into(),
+                        _ => "dumbass".into(),
+                    }
+                });
                 b
             }).collect();
         let mut effects_pool = crate::lf::effects_pool::EffectsPool::new(64);
@@ -183,6 +202,16 @@ impl Match {
             overlay_ttl: 0,
             panel_remap: std::collections::HashMap::new(),
             f6_mode: false,
+            ai_script_pool: package
+                .data_list
+                .AI
+                .iter()
+                .filter_map(|e| {
+                    let f = e.file.rsplit('/').next().unwrap_or(&e.file);
+                    let name = f.trim_end_matches(".js").trim_end_matches(".as");
+                    if name.is_empty() { None } else { Some(name.to_string()) }
+                })
+                .collect(),
         })
     }
 

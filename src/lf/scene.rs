@@ -50,3 +50,12 @@ pub fn query_characters(
     }
     idx
 }
+
+/// Living weapon positions for AI / scripts
+pub fn query_weapons(weapons: &[(u32, f64, f64, bool)]) -> Vec<(u32, f64, f64)> {
+    weapons
+        .iter()
+        .filter(|(_, _, _, held)| !*held)
+        .map(|(u, x, z, _)| (*u, *x, *z))
+        .collect()
+}

@@ -208,6 +208,11 @@ impl LivingObject {
     }
 
     /// Apply pending transistor next frame (enter frame)
+    /// F.LF livingobject.transit — apply pending frame
+    pub fn transit(&mut self) -> bool {
+        self.apply_transit()
+    }
+
     pub fn apply_transit(&mut self) -> bool {
         let mut frame = self.trans.next;
         if self.trans.switch_dir_after {
