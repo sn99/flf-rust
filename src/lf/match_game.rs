@@ -1023,6 +1023,9 @@ impl Match {
                         if !vol.intersects(b) { continue; }
                         if itr.kind == 9 {
                             kill.push(si);
+                        } else if itr.kind == 14 {
+                            // ice column — break immediately
+                            kill.push(si);
                         } else if itr.kind == 0 {
                             // damage type3
                             kill.push(si); // destroy ball on hit often

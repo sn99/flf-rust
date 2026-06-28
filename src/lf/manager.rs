@@ -47,6 +47,8 @@ pub struct Manager {
     running: Rc<Cell<bool>>,
     /// pending key rebind (controller slot, action name)
     rebind_target: Option<(usize, String)>,
+    /// F4 cycles: normal → wide → maximize-ish
+    view_mode: u8,
 }
 
 #[derive(Clone)]
@@ -156,6 +158,7 @@ impl Manager {
             fps_timer: js_sys::Date::now(),
             running: Rc::new(Cell::new(true)),
             rebind_target: None,
+            view_mode: 0,
         };
         // apply UI bg colors
         if let Some(fp) = util::div_class("frontpage") {
@@ -407,6 +410,39 @@ impl Manager {
             self.render_settings_dom();
         }
         true
+    }
+
+    /// F4: cycle canvas width normal → wide → tall maximize (LF manager maximize/wide)
+    fn cycle_view_mode(&mut self) {
+        self.view_mode = (self.view_mode + 1) % 3;
+        let (w, h) = match self.view_mode {
+            0 => (global::WINDOW_WIDTH as u32, global::VIEWER_HEIGHT as u32),
+            1 => (global::WINDOW_WIDE_WIDTH as u32, global::VIEWER_HEIGHT as u32),
+            _ => (
+                global::WINDOW_WIDE_WIDTH as u32,
+                (global::VIEWER_HEIGHT + 80.0) as u32,
+            ),
+        };
+        self.renderer.set_size(w, h);
+        if let Some(root) = util::qs(".LFroot") {
+            let _ = root.set_attribute(
+                "data-view",
+                match self.view_mode {
+                    0 => "normal",
+                    1 => "wide",
+                    _ => "max",
+                },
+            );
+            if let Ok(Some(style)) = js_sys::Reflect::get(root.as_ref(), &"style".into())
+                .and_then(|s| Ok(s))
+            {
+                let _ = style;
+            }
+            let st = root.dyn_ref::<HtmlElement>().map(|e| e.style());
+            if let Some(st) = st {
+                let _ = st.set_property("max-width", &format!("{}px", w + 20));
+            }
+        }
     }
 
     fn render_network_dom(&self) {
@@ -720,7 +756,9 @@ impl Manager {
                         }
                     }
                     Screen::Gameplay => {
-                        if k == "escape" || key == "F4" {
+                        if key == "F4" {
+                            g.cycle_view_mode();
+                        } else if k == "escape" {
                             g.match_game = None;
                             g.show_screen(Screen::FrontPage);
                         } else if key == "F1" || k == "p" {
