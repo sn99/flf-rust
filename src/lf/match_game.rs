@@ -367,7 +367,7 @@ impl Match {
     fn process_hits(&mut self) {
         let n = self.characters.len();
         // i, j, injury, fall, dvx, dvy, arest, effect, kind, vrest
-        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32, i32, i32)> = vec![];
+        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32, i32, i32, f64)> = vec![];
 
         for i in 0..n {
             if self.characters[i].base.removed || self.characters[i].base.arest > 0 {
@@ -420,6 +420,7 @@ impl Match {
                                 itr.effect,
                                 itr.kind,
                                 vrest,
+                                itr.bdefend,
                             ));
                         }
                     }
@@ -428,7 +429,7 @@ impl Match {
         }
 
         let mut drops: Vec<(u32, f64, f64)> = vec![]; // char uid, vx, vy for weapon drop
-        for (i, j, injury, fall, dvx, dvy, arest, eff, ikind, vrest) in events {
+        for (i, j, injury, fall, dvx, dvy, arest, eff, ikind, vrest, bdef) in events {
             let att_uid = self.characters[i].base.uid;
             let att_x = self.characters[i].base.ps.x;
             let facing = self.characters[i].base.facing;
@@ -500,6 +501,9 @@ impl Match {
             }
             if self.characters[j].base.hp <= 0.0 && !self.characters[j].base.dead {
                 self.characters[i].base.kills += 1;
+            }
+            if bdef > 0.0 {
+                self.characters[j].base.bdefend += bdef;
             }
             match snd_eff {
                 2 | 20 | 21 | 22 | 23 => self.sound.play("1/070"),
