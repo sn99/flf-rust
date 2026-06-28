@@ -1,0 +1,24 @@
+{
+  "name": "flf",
+  "type": "module",
+  "collaborators": [
+    "sn99"
+  ],
+  "description": "F.LF — open source LF2 engine rewritten in Rust (WASM)",
+  "version": "0.9.9",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sn99/flf-rust"
+  },
+  "files": [
+    "flf_bg.wasm",
+    "flf.js",
+    "flf.d.ts"
+  ],
+  "main": "flf.js",
+  "types": "flf.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

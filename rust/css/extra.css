@@ -1,0 +1,101 @@
+.menu_box {
+  display: inline-block;
+  margin-top: 120px;
+  padding: 12px 28px;
+  border: 2px solid rgba(120, 160, 220, 0.6);
+  border-radius: 16px;
+  background: rgba(0, 20, 60, 0.35);
+  color: #6af;
+  font-size: 22px;
+  line-height: 1.6;
+  cursor: pointer;
+  text-align: center;
+}
+.menu_item:hover { color: #fff; }
+.char_select_inner, .settings_inner {
+  padding: 16px;
+  color: #eee;
+  background: #223;
+  min-height: 400px;
+  overflow: auto;
+}
+.slots { display: flex; gap: 16px; flex-wrap: wrap; }
+.slot { background: #334; padding: 12px; border-radius: 8px; min-width: 140px; }
+.bg_list { margin-top: 16px; }
+.bg_item { cursor: pointer; margin-right: 8px; color: #8cf; }
+.cs_help { margin-top: 12px; opacity: 0.8; }
+.gameplay .canvas {
+  display: block;
+  background: #000;
+}
+.frontpage_content { text-align: center; padding-top: 40px; }
+/* front page background image from LF2 UI if present */
+.frontpage {
+  background: #001a66 url('../assets/LF2_19/UI/frontpage.png') center/cover no-repeat;
+  min-height: 480px;
+  position: relative;
+}
+.character_selection {
+  background: #111 url('../assets/LF2_19/UI/character_selection.png') center/cover no-repeat;
+  min-height: 480px;
+}
+.settings {
+  background: #222 url('../assets/LF2_19/UI/settings.png') center/cover no-repeat;
+  min-height: 480px;
+}
+.LFroot .container.maximized {
+  position: fixed;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  z-index: 1000;
+}
+
+.frontpage { position: relative; overflow: hidden; min-height: 480px; background: #10206c; }
+.frontpage_content { position: relative; width: 794px; height: 480px; margin: 0 auto; }
+.fp_stage { position: relative; width: 794px; height: 480px; }
+.fp_bg { position: absolute; left: 0; top: 0; width: 794px; height: auto; pointer-events: none; }
+.fp_dialog { position: absolute; z-index: 2; }
+.fp_dialog_bg, .fp_dialog_pic { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.menu_hit {
+  position: absolute; left: 20px; right: 20px; border: 0; background: transparent; cursor: pointer;
+  padding: 0; margin: 0;
+}
+.menu_hit:hover { background: rgba(255,255,255,0.08); }
+
+.character_selection { position: relative; min-height: 480px; background: #000; overflow: hidden; }
+.cs_stage { position: relative; width: 794px; height: 480px; margin: 0 auto; }
+.cs_stage.dim .cs_bg { opacity: 0.45; }
+.cs_bg { position: absolute; left: 0; top: 0; width: 794px; pointer-events: none; }
+.cs_box {
+  position: absolute; text-align: center; background: rgba(0,0,40,0.55);
+  border: 1px solid #345; border-radius: 4px; padding: 4px; z-index: 2;
+}
+.cs_name { font-size: 12px; margin-top: 2px; }
+.cs_meta { font-size: 10px; color: #89a; }
+.cs_hint { position: absolute; left: 10px; bottom: 8px; color: #9cf; font-size: 12px; z-index: 3; }
+.cs_bgrow { position: absolute; left: 10px; bottom: 28px; z-index: 3; font-size: 12px; }
+.cs_bgsel { color: #fff; font-weight: bold; text-decoration: underline; }
+.bg_item { color: #8cf; cursor: pointer; margin-right: 6px; }
+
+.modal_dlg { position: absolute; z-index: 5; }
+.com_row { position: absolute; left: 68px; top: 69px; display: flex; gap: 11px; }
+.com_n {
+  display: inline-block; width: 19px; height: 19px; line-height: 19px; text-align: center;
+  border: 1px solid; cursor: pointer; font-size: 12px;
+}
+.vs_items { position: absolute; left: 40px; top: 20px; width: 220px; z-index: 6; }
+.vs_item { color: #9b9bff; padding: 4px 8px; cursor: pointer; font-size: 13px; }
+.vs_item.vs_sel, .vs_item:hover { color: #fff; background: rgba(80,80,200,0.35); }
+
+.set_stage { position: relative; width: 794px; min-height: 480px; margin: 0 auto; color: #cde; }
+.set_bg { width: 794px; display: block; }
+.set_table { position: absolute; left: 40px; top: 80px; background: rgba(0,0,30,0.7); padding: 12px; }
+.set_table table { border-collapse: collapse; }
+.set_table td, .set_table th { padding: 4px 12px; border-bottom: 1px solid #345; }
+.ok_hit {
+  position: absolute; left: 550px; top: 430px; width: 151px; height: 26px;
+  border: 0; background: rgba(100,120,255,0.25); color: #fff; cursor: pointer;
+}
+.gameplay .canvas { image-rendering: pixelated; }
