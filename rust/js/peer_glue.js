@@ -1,4 +1,6 @@
-/** PeerJS lockstep glue approximating F.LF core/network application layer. */
+/** PeerJS lockstep glue approximating F.LF core/network application layer.
+ * Prefer network_core.js + flobby.js for full F.Lobby 0.1; this remains a thin fallback.
+ */
 (function (w) {
   w.__flf_peer_inbox = w.__flf_peer_inbox || [];
   var hostId = null;
@@ -8,6 +10,11 @@
     console.log('[flf peer] connect', { server: server, role: role, room: room, hostId: hostId });
     if (!w.Peer) {
       console.warn('[flf peer] Load peerjs.min.js for WebRTC; BroadcastChannel still active.');
+      return;
+    }
+    // If network_core already owns Peer, skip double-connect
+    if (w.__flf_peer && w.__flf_network_config) {
+      console.log('[flf peer] network_core owns peer; glue skip create');
       return;
     }
     try {
@@ -37,14 +44,32 @@
       console.log('[flf peer] connection open');
     });
     conn.on('data', function (d) {
+      // Feed core network if present
+      if (w.__flf_network && w.__flf_network.onTransportData) {
+        try {
+          w.__flf_network.onTransportData(typeof d === 'string' ? JSON.parse(d) : d);
+        } catch (e) {}
+      }
       var s = typeof d === 'string' ? d : JSON.stringify(d);
       w.__flf_peer_inbox.push(s);
+      // Also legacy Rust inbox
+      if (w.__flf_net_inbox && w.__flf_net_inbox.push) {
+        w.__flf_net_inbox.push(s);
+      } else if (w.__flf_net_inbox && typeof w.__flf_net_inbox === 'object') {
+        try {
+          // may be JS Array from wasm Reflect
+        } catch (e) {}
+      }
     });
   }
   w.__flf_peer_send = function (payload) {
     if (w.__flf_conn && w.__flf_conn.open) {
       try {
-        w.__flf_conn.send(payload);
+        if (typeof payload === 'string') {
+          try { w.__flf_conn.send(JSON.parse(payload)); } catch (e) { w.__flf_conn.send(payload); }
+        } else {
+          w.__flf_conn.send(payload);
+        }
       } catch (e) {}
     }
   };

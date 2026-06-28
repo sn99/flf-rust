@@ -11,7 +11,10 @@
 <link rel="stylesheet" href="css/extra.css">
 <script src="js/ai_bridge.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="js/network_core.js"></script>
+<script src="js/flobby.js"></script>
 <script src="js/peer_glue.js"></script>
+<script src="js/tu_harness.js"></script>
 </head>
 <body>
 <div class="LFroot">
@@ -46,13 +49,18 @@
 			<div class="settings" style="display:none"></div>
 			<div class="network_game" style="display:none">
 				<div class="network_game_menu">
-					<select class="server_select"></select>
+					<select class="server_select">
+						<option value="http://lobby.projectf.hk">Project F Official Lobby</option>
+						<option value="third_party_server">third party server</option>
+					</select>
 					<button class="server_connect">Connect</button>
 					<button class="network_game_cancel">Cancel</button>
-					<input class="server_address" type="url" value="">
+					<input class="server_address" type="url" value="http://lobby.projectf.hk" placeholder="F.Lobby address or room-…">
 					<textarea class="network_log" readonly></textarea>
+					<p class="footnote" style="color:#9ab;font-size:11px;margin:4px 0 0">F.Lobby 0.1 — protocol + iframe; falls back to PeerJS/BroadcastChannel lockstep. TU dump: ?tu_dump=1 then __flf_tu_download()</p>
 				</div>
 			</div>
+			<div class="lobby_panel" style="display:none"></div>
 			<div class="gameplay" style="display:none">
 				<canvas class="canvas" width="794" height="400"></canvas>
 				<div class="top_status"></div>
