@@ -275,7 +275,7 @@ impl Match {
 
     fn process_hits(&mut self) {
         let n = self.characters.len();
-        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32)> = vec![];
+        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32, i32)> = vec![]; // + itr_kind
 
         for i in 0..n {
             if self.characters[i].base.removed || self.characters[i].base.arest > 0 {
@@ -316,8 +316,9 @@ impl Match {
                     &vframe,
                 );
                 for (vol, itr) in &itrs {
-                    // kind 0 normal; 3 fire-like; 4 ice-like still apply injury in LF2
-                    if itr.kind != 0 && itr.kind != 3 && itr.kind != 4 && itr.kind != 5 {
+                    // Combat itr kinds (LF2): 0 normal, 3 fire, 4 ice, 5, 8 heal-ish negative injury in data
+                    // 1 catch handled separately; 2 weapon pick; 9 shield deplete on specials
+                    if !matches!(itr.kind, 0 | 3 | 4 | 5 | 8) {
                         continue;
                     }
                     for b in &bdys {
@@ -325,14 +326,14 @@ impl Match {
                         if vol.intersects(b) {
                             let injury = if itr.injury != 0.0 { itr.injury } else { 20.0 };
                             let fall = if itr.fall != 0.0 { itr.fall } else { global::DEFAULT_FALL };
-                            events.push((i, j, injury, fall, vol.vx, itr.dvy, itr.arest, itr.effect));
+                            events.push((i, j, injury, fall, vol.vx, itr.dvy, itr.arest, itr.effect, itr.kind));
                         }
                     }
                 }
             }
         }
 
-        for (i, j, injury, fall, dvx, dvy, arest, eff) in events {
+        for (i, j, injury, fall, dvx, dvy, arest, eff, ikind) in events {
             let facing = self.characters[i].base.facing;
             self.characters[i].base.arest = if arest > 0 { arest } else { global::DEFAULT_AREST };
             let vid = self.characters[j].base.uid;
@@ -358,9 +359,14 @@ impl Match {
                 }
             }
             let dvy_use = if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY };
+            let mut inj2 = inj;
+            if ikind == 8 {
+                // heal-type itr: negative injury heals
+                inj2 = -inj.abs().max(10.0);
+            }
             self.characters[j]
                 .base
-                .injure(inj, fall, dvx, dvy_use, facing);
+                .injure(inj2, if ikind == 8 { 0.0 } else { fall }, dvx, if ikind == 8 { 0.0 } else { dvy_use }, facing);
             // blood effect id 301
             let (bx, by, bz) = (
                 self.characters[j].base.ps.x,
