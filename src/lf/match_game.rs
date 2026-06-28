@@ -116,6 +116,9 @@ impl Match {
             sound: {
                 let mut s = crate::lf::soundpack::Soundpack::new();
                 s.set_root(&package.root);
+                if !package.sound_meta.is_null() {
+                    s.load_meta_json(&package.sound_meta);
+                }
                 s
             },
             ai_brains,
@@ -269,7 +272,8 @@ impl Match {
                     &vframe,
                 );
                 for (vol, itr) in &itrs {
-                    if itr.kind != 0 {
+                    // kind 0 normal; 3 fire-like; 4 ice-like still apply injury in LF2
+                    if itr.kind != 0 && itr.kind != 3 && itr.kind != 4 && itr.kind != 5 {
                         continue;
                     }
                     for b in &bdys {

@@ -9,6 +9,7 @@ export const wasm_bindgen__convert__closures_____invoke__h21a0648bc28e0ade: (a: 
 export const wasm_bindgen__convert__closures_____invoke__h2020ed747a1b5a9e: (a: number, b: number, c: any, d: any) => void;
 export const wasm_bindgen__convert__closures_____invoke__hd1271bf743092b1a: (a: number, b: number, c: any) => void;
 export const wasm_bindgen__convert__closures_____invoke__hd1271bf743092b1a_3: (a: number, b: number, c: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__ha35224779a753d24: (a: number, b: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;

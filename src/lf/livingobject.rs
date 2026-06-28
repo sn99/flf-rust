@@ -357,11 +357,25 @@ impl LivingObject {
                 let st = self.state();
                 if st == 4 || self.frame.n == 212 {
                     self.trans_frame(215, 15); // crouch
-                } else if was_air && (st == 12 || self.frame.n >= 180 && self.frame.n < 190) {
-                    // fall land -> lying 219 or 180s
-                    if self.data.frames.contains_key(&219) {
-                        self.trans_frame(219, 15);
+                } else if was_air && (st == 12 || (self.frame.n >= 180 && self.frame.n < 190)) {
+                    // fall land — bounce if fast
+                    let spd = (self.ps.vx * self.ps.vx + self.ps.vy * self.ps.vy).sqrt();
+                    if spd > 13.4 || self.ps.vy.abs() > 11.0 {
+                        // bounce up
+                        let absorb = global::bounce_absorb(self.ps.vx);
+                        if self.ps.vx.abs() > absorb {
+                            self.ps.vx -= self.ps.vx.signum() * absorb;
+                        } else {
+                            self.ps.vx = 0.0;
+                        }
+                        self.ps.vy = -4.25; // bounceup.y
+                        self.trans_frame(182, 10);
+                    } else if self.data.frames.contains_key(&219) {
+                        self.trans_frame(219, 15); // lying
+                    } else if self.data.frames.contains_key(&185) {
+                        self.trans_frame(185, 15);
                     }
+                    self.frame_sound = "1/016".into(); // fall sound
                 } else if was_air && matches!(st, 5 | 3) {
                     self.trans_frame(215, 15);
                 }

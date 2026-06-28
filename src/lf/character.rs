@@ -85,10 +85,34 @@ impl Character {
                     self.base.ps.vy = bmp.dash_height;
                 }
             }
+            11 => {
+                // injured — lock frames 220-226; next 999 on 221/223/225 via data
+            }
+            12 => {
+                // falling sequence 180-189 / 185-191 depending on dvy
+                let n = self.base.frame.n;
+                let dvy_up = self.base.ps.vy < 0.0;
+                if n == 180 && self.base.statemem_frame_tu {
+                    self.base.statemem_frame_tu = false;
+                    if dvy_up {
+                        // wait handled by frame data
+                    } else {
+                        // falling down branch often 185
+                    }
+                }
+                // bounce on hard landing is in physics_tu land handler
+            }
             14 => {
+                // lying — get up via frame next; dead blink
                 if self.base.hp <= 0.0 && self.base.counter_dead_blink < 0 {
                     self.base.counter_dead_blink = 0;
                 }
+            }
+            15 => {
+                // crouch / stop run / weapon throws — limited (input in handle_input)
+            }
+            16 => {
+                // dance of pain — no input
             }
             _ => {}
         }

@@ -17,6 +17,7 @@ pub struct Package {
     pub ui: Value,
     pub resourcemap: ResourceMap,
     pub manifest: Value,
+    pub sound_meta: Value,
 }
 
 impl Package {
@@ -70,6 +71,7 @@ impl Package {
             ui,
             resourcemap,
             manifest,
+            sound_meta: Value::Null,
         };
 
         // Preload all non-lazy objects (weapons, effects, drinks, etc.)
@@ -93,6 +95,11 @@ impl Package {
             if let Ok(v) = fetch_json(&format!("{}/{}", root, bg.file)).await {
                 pkg.backgrounds.insert(bg.id, v);
             }
+        }
+
+        // sound sprite metadata
+        if let Ok(sm) = fetch_json(&format!("{}/sound/soundpack.json", root)).await {
+            pkg.sound_meta = sm;
         }
 
         log(&format!(
