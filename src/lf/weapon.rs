@@ -22,6 +22,9 @@ impl Weapon {
             heavy,
             holder_uid: None,
         };
+        w.base.hp = w.base.data.bmp.weapon_hp.max(1.0);
+        w.base.hp_full = w.base.hp;
+        w.base.hp_bound = w.base.hp;
         w.base.trans_frame(0, 0);
         w
     }
@@ -113,5 +116,124 @@ impl Weapon {
     pub fn die(&mut self) {
         self.base.trans_frame(1000, 20);
         self.base.removed = true;
+    }
+}
+
+impl Weapon {
+    /// F.LF typeweapon.hit — reverse on head-on throw, bounce on ground
+    pub fn on_hit_by(&mut self, att_facing: i32, att_vx: f64, att_vz: f64, fall: f64, injury: f64) -> bool {
+        if self.held {
+            return false;
+        }
+        let st = self.base.state();
+        let mut accept = false;
+        if self.light {
+            if st == 1002 {
+                accept = true;
+                // head-on reverse
+                if (att_facing > 0) != (self.base.ps.vx > 0.0) {
+                    self.base.ps.vx *= -0.6;
+                }
+                self.base.ps.vy *= -0.4;
+                self.base.ps.vz *= -0.4;
+            } else if st == 1004 || self.base.ps.y >= 0.0 {
+                accept = true;
+                self.base.ps.vx = att_facing as f64 * 3.0;
+                self.base.ps.vz = if att_vz != 0.0 { att_vz.signum() * 1.5 } else { 0.0 };
+            }
+        }
+        if self.heavy {
+            if st == 2004 || self.base.ps.y >= 0.0 {
+                accept = true;
+                if fall < 30.0 {
+                    self.base.effect_create(0, 3, 0.0, 0.0);
+                } else if fall < global::FALL_KO {
+                    self.base.ps.vy = -3.7;
+                } else {
+                    self.base.ps.vy = -6.0;
+                    if att_vx != 0.0 {
+                        self.base.ps.vx = att_vx.signum() * 3.0;
+                    }
+                    self.base.trans_frame(20, 5);
+                }
+            } else if st == 2000 && fall >= global::FALL_KO {
+                accept = true;
+                if (att_facing > 0) != (self.base.ps.vx > 0.0) {
+                    self.base.ps.vx *= -0.6;
+                }
+                self.base.ps.vy *= -0.4;
+            }
+        }
+        if accept && injury > 0.0 {
+            self.base.hp -= injury;
+            if self.base.hp <= 0.0 {
+                self.die();
+            }
+        }
+        accept
+    }
+
+    /// F.LF typeweapon.act — held weaponact + throw impulse from wpoint kind 2
+    /// Returns true if thrown this frame
+    pub fn act(
+        &mut self,
+        holder_uid: u32,
+        holder_x: f64,
+        holder_y: f64,
+        holder_z: f64,
+        holder_facing: i32,
+        weaponact: i32,
+        attacking: i32,
+        cover: i32,
+        dvx: f64,
+        dvy: f64,
+        dvz: f64,
+        wpoint_kind: i32,
+    ) -> bool {
+        self.held = true;
+        self.holder_uid = Some(holder_uid);
+        self.base.team = 0; // set by caller usually
+        if weaponact > 0 && self.base.data.frames.contains_key(&weaponact) {
+            self.base.trans_frame(weaponact, 2);
+        }
+        let mut thrown = false;
+        if wpoint_kind == 2 {
+            if dvx != 0.0 {
+                self.base.ps.vx = holder_facing as f64 * dvx;
+            }
+            if dvz != 0.0 {
+                self.base.ps.vz = dvz; // dirv * dvz approximated as signed vz from data
+            }
+            if dvy != 0.0 {
+                self.base.ps.vy = dvy;
+            }
+            if self.base.ps.vx != 0.0 || self.base.ps.vy != 0.0 || self.base.ps.vz != 0.0 {
+                let (imx, imy) = if self.light { (58.0, -15.0) } else { (48.0, -40.0) };
+                self.base.ps.x = holder_x + holder_facing as f64 * imx;
+                self.base.ps.y = holder_y + imy;
+                self.base.ps.z = holder_z + self.base.ps.vz;
+                self.base.ps.zz = 1.0;
+                if self.light {
+                    self.base.trans_frame(40, 5);
+                } else {
+                    self.base.trans_frame(20, 5);
+                }
+                self.held = false;
+                self.holder_uid = None;
+                thrown = true;
+            }
+        }
+        if !thrown {
+            self.base.ps.zz = if cover == 1 { -1.0 } else { 1.0 };
+            self.base.facing = holder_facing;
+            self.base.ps.z = holder_z;
+            // position applied by attach_to from wpoint world
+            let _ = attacking;
+        }
+        thrown
+    }
+
+    pub fn strength_itr(&self, attacking: i32) -> Option<&crate::lf::data::ItrData> {
+        self.base.data.weapon_strength_list.get(&attacking)
     }
 }

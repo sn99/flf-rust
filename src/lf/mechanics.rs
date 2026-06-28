@@ -93,4 +93,15 @@ impl Mech {
     pub fn speed(ps: &Pos) -> f64 {
         (ps.vx * ps.vx + ps.vy * ps.vy + ps.vz * ps.vz).sqrt()
     }
+
+    /// F.LF mech.make_point — world position of a frame-relative point (cpoint/wpoint/opoint)
+    pub fn make_point(ps: &Pos, facing: i32, centerx: f64, centery: f64, px: f64, py: f64) -> (f64, f64, f64) {
+        let x = if facing >= 0 {
+            ps.x - centerx + px
+        } else {
+            ps.x + centerx - px
+        };
+        let y = ps.y + (py - centery);
+        (x, y, ps.z)
+    }
 }

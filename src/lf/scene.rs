@@ -1,5 +1,8 @@
-//! Scene queries (LF/match scene.query subset)
+//! Scene queries (LF/scene.js) — character lists + volume intersection
+use crate::core_engine::collision::Volume;
 use crate::lf::character::Character;
+use crate::lf::mechanics::Mech;
+use crate::lf::weapon::Weapon;
 
 #[derive(Clone, Copy)]
 pub struct QueryOpts {
@@ -43,8 +46,6 @@ pub fn query_characters(
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
-    // fix Equal
-    let _ = 0;
     if opts.reverse {
         idx.reverse();
     }
@@ -58,4 +59,56 @@ pub fn query_weapons(weapons: &[(u32, f64, f64, bool)]) -> Vec<(u32, f64, f64)> 
         .filter(|(_, _, _, held)| !*held)
         .map(|(u, x, z, _)| (*u, *x, *z))
         .collect()
+}
+
+/// F.LF scene.query with body volumes — character indices whose bdy intersects `vol`
+pub fn query_volume_characters(
+    chars: &[Character],
+    vol: &Volume,
+    exclude_uid: Option<u32>,
+    not_team: Option<i32>,
+) -> Vec<usize> {
+    let mut out = vec![];
+    for (i, ch) in chars.iter().enumerate() {
+        if ch.base.removed {
+            continue;
+        }
+        if exclude_uid == Some(ch.base.uid) {
+            continue;
+        }
+        if let Some(nt) = not_team {
+            if ch.base.team == nt && ch.base.team != 0 {
+                continue;
+            }
+        }
+        let Some(fd) = ch.base.frame_data() else { continue };
+        let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, fd);
+        if bdys.iter().any(|b| vol.intersects(b)) {
+            out.push(i);
+        }
+    }
+    out
+}
+
+/// Weapons whose body intersects volume (not held)
+pub fn query_volume_weapons(
+    weapons: &[Weapon],
+    vol: &Volume,
+    exclude_uid: Option<u32>,
+) -> Vec<usize> {
+    let mut out = vec![];
+    for (i, w) in weapons.iter().enumerate() {
+        if w.held || w.base.removed {
+            continue;
+        }
+        if exclude_uid == Some(w.base.uid) {
+            continue;
+        }
+        let Some(fd) = w.base.frame_data() else { continue };
+        let bdys = Mech::body_volumes(&w.base.ps, w.base.facing, fd);
+        if bdys.iter().any(|b| vol.intersects(b)) {
+            out.push(i);
+        }
+    }
+    out
 }

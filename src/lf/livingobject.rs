@@ -501,7 +501,10 @@ impl LivingObject {
             self.fall = 0.0;
             self.ps.vy = ef_dvy;
             let front = (attacker_x > self.ps.x) == (self.facing > 0);
-            if front {
+            // F.LF falldown: front + dvx<0 + strong bdefend → 186 else front 180 / back 186
+            if front && dvx < 0.0 && self.bdefend >= 60.0 {
+                self.trans_frame(186, 21);
+            } else if front {
                 self.trans_frame(180, 21);
             } else {
                 self.trans_frame(186, 21);

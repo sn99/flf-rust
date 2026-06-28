@@ -1291,9 +1291,16 @@ impl Match {
             if drop_w {
                 drops.push(self.characters[ci].base.uid);
             }
-            // weapon rebound
-            self.weapons[wi].base.ps.vx *= -0.4;
-            self.weapons[wi].base.ps.vy = -2.0;
+            // weapon rebound (F.LF typeweapon.hit reverse/bounce)
+            let _ = self.weapons[wi].on_hit_by(facing, dvx, 0.0, fall, 0.0);
+            if self.weapons[wi].base.ps.vx.abs() < 0.1 {
+                self.weapons[wi].base.ps.vx *= -0.4;
+                self.weapons[wi].base.ps.vy = -2.0;
+            }
+            let hit_snd = self.weapons[wi].base.data.bmp.weapon_hit_sound.clone();
+            if !hit_snd.is_empty() {
+                self.sound.play(&hit_snd);
+            }
             // chance to break light weapons on hard hit
             if self.weapons[wi].light && inj > 30.0 {
                 let (x, y, z) = (
@@ -1916,19 +1923,165 @@ impl Match {
             self.characters[ci].base.hold_type = wtype;
         }
 
-        // sync held weapons to wpoint
+        // sync held weapons to wpoint + F.LF act() (weaponact / throw)
+        let mut thrown_uids = vec![];
         for ch in &self.characters {
             if let Some(wid) = ch.hold_weapon {
                 if let Some((x, y, z, facing, wact)) = ch.wpoint_world() {
+                    let (wk, attk, cover, dvx, dvy, dvz) = ch
+                        .base
+                        .frame_data()
+                        .and_then(|fd| fd.wpoint.as_ref())
+                        .map(|wp| (wp.kind, wp.attacking, wp.cover, wp.dvx, wp.dvy, wp.dvz))
+                        .unwrap_or((1, 0, 0, 0.0, 0.0, 0.0));
                     if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
-                        w.attach_to(ch.base.uid, x, y, z, facing);
                         w.base.team = ch.base.team;
-                        if wact > 0 {
-                            w.base.trans_frame(wact, 2);
+                        let thrown = w.act(
+                            ch.base.uid,
+                            ch.base.ps.x,
+                            ch.base.ps.y,
+                            ch.base.ps.z,
+                            facing,
+                            wact,
+                            attk,
+                            cover,
+                            dvx,
+                            dvy,
+                            dvz,
+                            wk,
+                        );
+                        if thrown {
+                            thrown_uids.push((ch.base.uid, wid));
+                        } else {
+                            w.attach_to(ch.base.uid, x, y, z, facing);
+                            w.base.team = ch.base.team;
                         }
                     }
                 }
             }
+        }
+        for (cuid, wid) in thrown_uids {
+            if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == cuid) {
+                if ch.hold_weapon == Some(wid) {
+                    ch.hold_weapon = None;
+                    ch.hold_weapon_oid = 0;
+                    ch.base.hold_type.clear();
+                }
+            }
+        }
+
+        // held light weapon melee via weapon_strength_list (F.LF act kind 5)
+        self.held_weapon_melee();
+    }
+
+    /// F.LF held weapon itr kind 5 using weapon_strength_list[attacking]
+    fn held_weapon_melee(&mut self) {
+        let mut hits: Vec<(usize, usize, f64, f64, f64, f64, i32, String)> = vec![];
+        // (att_ci, vic_ci, injury, fall, dvx, dvy, vrest, hit_sound)
+        for (ci, ch) in self.characters.iter().enumerate() {
+            if ch.base.removed {
+                continue;
+            }
+            let Some(wid) = ch.hold_weapon else { continue };
+            let Some(wp) = ch.base.frame_data().and_then(|f| f.wpoint.clone()) else {
+                continue;
+            };
+            if wp.attacking <= 0 {
+                continue;
+            }
+            let Some(w) = self.weapons.iter().find(|w| w.base.uid == wid) else {
+                continue;
+            };
+            if !w.light || !w.held {
+                continue;
+            }
+            let itr = w
+                .strength_itr(wp.attacking)
+                .cloned()
+                .or_else(|| {
+                    w.base.frame_data().and_then(|fd| {
+                        fd.itr.iter().find(|i| i.kind == 5).cloned()
+                    })
+                });
+            let Some(itr) = itr else { continue };
+            let Some(wframe) = w.base.frame_data().cloned() else { continue };
+            let itrs = Mech::itr_volumes(&w.base.ps, w.base.facing, &wframe);
+            let sound = w.base.data.bmp.weapon_hit_sound.clone();
+            for (vi, vic) in self.characters.iter().enumerate() {
+                if vi == ci || vic.base.removed {
+                    continue;
+                }
+                if ch.base.team != 0 && ch.base.team == vic.base.team {
+                    continue;
+                }
+                let Some(vf) = vic.base.frame_data().cloned() else { continue };
+                let bdys = Mech::body_volumes(&vic.base.ps, vic.base.facing, &vf);
+                for (vol, _) in &itrs {
+                    if bdys.iter().any(|b| vol.intersects(b)) {
+                        hits.push((
+                            ci,
+                            vi,
+                            if itr.injury != 0.0 { itr.injury } else { 40.0 },
+                            if itr.fall != 0.0 { itr.fall } else { 40.0 },
+                            itr.dvx,
+                            itr.dvy,
+                            if itr.vrest != 0 { itr.vrest } else { 10 },
+                            sound.clone(),
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+        let mut drops = vec![];
+        for (ci, vi, inj, fall, dvx, dvy, vrest, sound) in hits {
+            let att_uid = self.characters[ci].base.uid;
+            let att_x = self.characters[ci].base.ps.x;
+            let facing = self.characters[ci].base.facing;
+            if !self.characters[vi].base.itr_vrest_test(att_uid) {
+                continue;
+            }
+            self.characters[vi]
+                .base
+                .itr_vrest_update(att_uid, vrest);
+            let (drop_w, eff) = self.characters[vi].base.injure(
+                inj,
+                fall,
+                dvx * facing as f64,
+                dvy,
+                att_x,
+                0,
+                5,
+            );
+            if drop_w {
+                drops.push(self.characters[vi].base.uid);
+            }
+            self.posteffect_sound(eff, false);
+            if !sound.is_empty() {
+                self.sound.play(&sound);
+            } else {
+                self.sound.play("1/011");
+            }
+        }
+        for uid in drops {
+            self.drop_char_weapon(uid, 3.0, -2.0, 0.0);
+        }
+    }
+
+    /// F.LF posteffect — sound cues by effect number / defended
+    fn posteffect_sound(&mut self, effect_num: i32, defended: bool) {
+        if defended {
+            match effect_num {
+                0 | 1 => self.sound.play("1/002"),
+                _ => {}
+            }
+            return;
+        }
+        match effect_num {
+            0 | 1 => self.sound.play("1/001"),
+            2 | 20 | 21 => self.sound.play("1/070"),
+            3 | 30 => self.sound.play("1/066"),
+            _ => self.sound.play("1/001"),
         }
     }
 

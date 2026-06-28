@@ -146,6 +146,11 @@ pub struct BmpData {
     pub name: String,
     pub head: String,
     pub small: String,
+    pub weapon_hit_sound: String,
+    pub weapon_drop_sound: String,
+    pub weapon_broken_sound: String,
+    pub weapon_hp: f64,
+    pub weapon_drop_hurt: f64,
     pub walking_frame_rate: i32,
     pub walking_speed: f64,
     pub walking_speedz: f64,
@@ -173,6 +178,8 @@ pub struct ObjectData {
     pub obj_type: String,
     pub bmp: BmpData,
     pub frames: HashMap<i32, FrameData>,
+    /// F.LF weapon_strength_list keyed by attacking id string
+    pub weapon_strength_list: HashMap<i32, ItrData>,
 }
 
 fn f64_of(v: &Value) -> f64 {
@@ -397,6 +404,14 @@ pub fn parse_object_data(id: i32, obj_type: &str, v: &Value) -> ObjectData {
         dash_distancez: f64_of(&bmp_v["dash_distancez"]),
         rowing_height: f64_of(&bmp_v["rowing_height"]),
         rowing_distance: f64_of(&bmp_v["rowing_distance"]),
+        weapon_hit_sound: str_of(&bmp_v["weapon_hit_sound"]),
+        weapon_drop_sound: str_of(&bmp_v["weapon_drop_sound"]),
+        weapon_broken_sound: str_of(&bmp_v["weapon_broken_sound"]),
+        weapon_hp: {
+            let h = f64_of(&bmp_v["weapon_hp"]);
+            if h > 0.0 { h } else { 200.0 }
+        },
+        weapon_drop_hurt: f64_of(&bmp_v["weapon_drop_hurt"]),
         sheets: parse_sheets(bmp_v),
     };
     let mut frames = HashMap::new();
@@ -407,7 +422,31 @@ pub fn parse_object_data(id: i32, obj_type: &str, v: &Value) -> ObjectData {
             }
         }
     }
-    ObjectData { id, obj_type: obj_type.to_string(), bmp, frames }
+    let mut weapon_strength_list = HashMap::new();
+    if let Some(obj) = v.get("weapon_strength_list").and_then(|x| x.as_object()) {
+        for (k, sv) in obj {
+            if let Ok(num) = k.parse::<i32>() {
+                let mut itr = parse_itr(sv);
+                if itr.injury == 0.0 {
+                    itr.injury = f64_of(&sv["injury"]);
+                }
+                if itr.fall == 0.0 {
+                    itr.fall = f64_of(&sv["fall"]);
+                }
+                if itr.dvx == 0.0 {
+                    itr.dvx = f64_of(&sv["dvx"]);
+                }
+                weapon_strength_list.insert(num, itr);
+            }
+        }
+    }
+    ObjectData {
+        id,
+        obj_type: obj_type.to_string(),
+        bmp,
+        frames,
+        weapon_strength_list,
+    }
 }
 
 pub fn frame_hit_tag(frame: &FrameData, tag: &str) -> i32 {
