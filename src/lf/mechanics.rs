@@ -1,4 +1,4 @@
-//! Mechanical helpers for living objects (LF/mechanics.js)
+//! Mechanical helpers (LF/mechanics.js volumes)
 use crate::core_engine::collision::Volume;
 use crate::lf::data::{FrameData, ItrData};
 use crate::lf::global;
@@ -13,6 +13,7 @@ impl Mech {
         Self { mass: mass.unwrap_or(global::DEFAULT_MASS) }
     }
 
+    /// Body in world space — collision uses x and "screen y" = z + frame offset + height
     pub fn body_volumes(ps: &Pos, facing: i32, frame: &FrameData) -> Vec<Volume> {
         let mut out = vec![];
         for b in &frame.bdy {
@@ -21,9 +22,11 @@ impl Mech {
             } else {
                 ps.x + frame.centerx - (b.x + b.w)
             };
+            // vertical on screen: feet at z, sprite up is -y direction in LF2 (y negative up)
+            let by = ps.z - frame.centery + b.y + ps.y;
             out.push(Volume {
                 x: bx,
-                y: ps.z - frame.centery + b.y - ps.y,
+                y: by,
                 z: ps.z,
                 w: b.w,
                 h: b.h,
@@ -44,9 +47,10 @@ impl Mech {
             } else {
                 ps.x + frame.centerx - (it.x + it.w)
             };
+            let iy = ps.z - frame.centery + it.y + ps.y;
             let vol = Volume {
                 x: ix,
-                y: ps.z - frame.centery + it.y - ps.y,
+                y: iy,
                 z: ps.z,
                 w: it.w,
                 h: it.h,
@@ -58,21 +62,5 @@ impl Mech {
             out.push((vol, it.clone()));
         }
         out
-    }
-}
-
-/// Integrate position: LF2 style (dvy negative = up, y positive = up)
-pub fn integrate(ps: &mut Pos, vx: f64, vy: f64, vz: f64) {
-    ps.x += vx;
-    ps.z += vz;
-    ps.y -= vy;
-    if ps.y < 0.0 {
-        ps.y = 0.0;
-    }
-}
-
-pub fn apply_gravity_vy(vy: &mut f64, on_ground: bool) {
-    if !on_ground || *vy != 0.0 {
-        *vy += global::GRAVITY;
     }
 }

@@ -12,12 +12,14 @@ impl Weapon {
             base: LivingObject::new(uid, data, 0, x, z),
             held: false,
         };
-        w.base.transit(0);
+        w.base.trans_frame(0, 0);
         w
     }
 
     pub fn tu(&mut self, bg_z: (f64, f64), bg_w: f64) {
-        if self.held { return; }
-        self.base.tu_base(bg_z, bg_w);
+        if self.held {
+            return;
+        }
+        self.base.physics_tu(bg_z, bg_w);
     }
 }

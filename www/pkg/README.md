@@ -45,3 +45,18 @@ cd www && python3 -m http.server 8080
 ## License
 
 Engine code: MIT (see `LICENSE`). LF2 assets remain under their original rights; LF2_19 is used as in the F.LF project for compatible open implementation.
+
+## Deploy notes
+
+The playable site is intended at **https://sn99.github.io/flf-rust/** (branch `gh-pages`, or GitHub Actions workflow).
+
+If Pages returns 404 while Actions say *account is locked due to a billing issue*, re-enable billing / GitHub Pages on the account, then either:
+- push again to `main` (workflow), or
+- refresh the `gh-pages` branch from `www/` contents.
+
+Local play always works:
+
+```bash
+wasm-pack build --target web --out-dir www/pkg --release
+cd www && python3 -m http.server 8080
+```

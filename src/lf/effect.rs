@@ -13,6 +13,6 @@ impl EffectObj {
     }
 
     pub fn tu(&mut self, bg_z: (f64, f64), bg_w: f64) {
-        self.base.tu_base(bg_z, bg_w);
+        self.base.physics_tu(bg_z, bg_w);
     }
 }

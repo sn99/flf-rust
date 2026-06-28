@@ -1,5 +1,5 @@
 use serde_json::Value;
-use crate::core_engine::sprite::CanvasRenderer;
+use crate::core_engine::sprite::{lf2_rect_color, CanvasRenderer};
 
 #[derive(Clone, Debug)]
 pub struct Background {
@@ -8,8 +8,9 @@ pub struct Background {
     pub width: f64,
     pub zboundary: (f64, f64),
     pub shadow: String,
+    pub shadow_w: f64,
+    pub shadow_h: f64,
     pub layers: Vec<BgLayer>,
-    pub data: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -19,99 +20,92 @@ pub struct BgLayer {
     pub y: f64,
     pub width: f64,
     pub height: f64,
-    pub loop_width: f64,
+    pub rect_color: Option<String>,
+    pub cc: i32,
+    pub c1: i32,
+    pub c2: i32,
 }
 
 impl Background {
     pub fn from_json(id: i32, v: &Value) -> Self {
-        let width = v["width"].as_f64()
-            .or_else(|| v["bmp"]["width"].as_f64())
-            .unwrap_or(1200.0);
+        let width = v["width"].as_f64().unwrap_or(794.0);
         let zb = &v["zboundary"];
-        let zboundary = if zb.is_array() {
-            let a = zb.as_array().unwrap();
+        let zboundary = if let Some(a) = zb.as_array() {
             (
                 a.first().and_then(|x| x.as_f64()).unwrap_or(300.0),
                 a.get(1).and_then(|x| x.as_f64()).unwrap_or(480.0),
             )
         } else {
-            (300.0, 480.0)
+            (316.0, 442.0)
+        };
+        let shadow = v["shadow"].as_str().unwrap_or("bg/hkc/s.png").to_string();
+        let (shadow_w, shadow_h) = if let Some(a) = v["shadowsize"].as_array() {
+            (
+                a.first().and_then(|x| x.as_f64()).unwrap_or(37.0),
+                a.get(1).and_then(|x| x.as_f64()).unwrap_or(9.0),
+            )
+        } else {
+            (37.0, 9.0)
         };
         let mut layers = vec![];
-        // layer entries vary; collect pic paths
         if let Some(layer) = v.get("layer").and_then(|l| l.as_array()) {
             for L in layer {
-                let path = L.get("pic")
-                    .or_else(|| L.get("file"))
-                    .and_then(|p| p.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                if path.is_empty() { continue; }
+                let path = L.get("pic").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                let rect_color = L.get("rect").and_then(|r| r.as_i64()).map(lf2_rect_color);
                 layers.push(BgLayer {
                     path,
                     x: L["x"].as_f64().unwrap_or(0.0),
                     y: L["y"].as_f64().unwrap_or(0.0),
                     width: L["width"].as_f64().unwrap_or(width),
-                    height: L["height"].as_f64().unwrap_or(100.0),
-                    loop_width: L["width"].as_f64().unwrap_or(width),
+                    height: L["height"].as_f64().unwrap_or(0.0),
+                    rect_color,
+                    cc: L["cc"].as_i64().unwrap_or(0) as i32,
+                    c1: L["c1"].as_i64().unwrap_or(0) as i32,
+                    c2: L["c2"].as_i64().unwrap_or(0) as i32,
                 });
             }
-        }
-        // fallback: single bg image fields
-        if layers.is_empty() {
-            for key in ["pic", "file", "background"].iter() {
-                if let Some(p) = v.get(*key).and_then(|x| x.as_str()) {
-                    layers.push(BgLayer {
-                        path: p.to_string(),
-                        x: 0.0, y: 0.0, width, height: 400.0, loop_width: width,
-                    });
-                }
-            }
-        }
-        // recursive search for png paths in JSON
-        if layers.is_empty() {
-            collect_pngs(v, &mut layers, width);
         }
         Self {
             id,
             name: v["name"].as_str().unwrap_or("bg").to_string(),
             width,
             zboundary,
-            shadow: v["shadow"].as_str().unwrap_or("bg/shadow.png").to_string(),
+            shadow,
+            shadow_w,
+            shadow_h,
             layers,
-            data: v.clone(),
         }
     }
 
-    pub fn draw(&self, ren: &mut CanvasRenderer) {
+    pub fn draw(&self, ren: &mut CanvasRenderer, time: u32) {
         for layer in &self.layers {
-            let scroll = ren.cam_x * 0.5; // parallax light
-            let mut x = layer.x - scroll;
-            // tile
-            let lw = if layer.loop_width > 0.0 { layer.loop_width } else { layer.width };
-            while x < ren.width {
-                ren.draw_image_scaled(&layer.path, x, layer.y, layer.width, layer.height);
-                x += lw;
-                if lw <= 0.0 { break; }
+            // animated layer visibility cc/c1/c2
+            if layer.cc > 0 {
+                let phase = (time as i32 / 2) % layer.cc;
+                if phase < layer.c1 || phase > layer.c2 {
+                    continue;
+                }
+            }
+            let x = layer.x - ren.cam_x;
+            if let Some(ref col) = layer.rect_color {
+                let h = if layer.height > 0.0 { layer.height } else { 20.0 };
+                ren.fill_rect_color(x, layer.y, layer.width, h, col);
+            } else if !layer.path.is_empty() {
+                if layer.height > 0.0 {
+                    ren.draw_image_scaled(&layer.path, x, layer.y, layer.width, layer.height);
+                } else {
+                    ren.draw_image_full(&layer.path, x, layer.y);
+                }
             }
         }
-        // solid fallback
         if self.layers.is_empty() {
-            ren.clear("#2a4a2a");
-            ren.fill_text(&self.name, 20.0, 30.0, "#fff", "16px sans-serif");
+            ren.clear("#10206c");
         }
     }
-}
 
-fn collect_pngs(v: &Value, layers: &mut Vec<BgLayer>, width: f64) {
-    match v {
-        Value::String(s) if s.ends_with(".png") || s.ends_with(".bmp") => {
-            layers.push(BgLayer {
-                path: s.clone(), x: 0.0, y: 0.0, width, height: 400.0, loop_width: width,
-            });
-        }
-        Value::Array(a) => { for x in a { collect_pngs(x, layers, width); } }
-        Value::Object(o) => { for x in o.values() { collect_pngs(x, layers, width); } }
-        _ => {}
+    pub fn draw_shadow(&mut self, ren: &mut CanvasRenderer, feet_x: f64, feet_z: f64) {
+        let x = feet_x - ren.cam_x - self.shadow_w / 2.0;
+        let y = feet_z - ren.cam_y - self.shadow_h / 2.0;
+        ren.draw_image_scaled(&self.shadow, x, y, self.shadow_w, self.shadow_h);
     }
 }

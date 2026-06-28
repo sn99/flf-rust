@@ -3,7 +3,6 @@ use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement};
 use crate::core_engine::util::document;
 
-/// Sprite sheet descriptor (from character bmp.file entries)
 #[derive(Clone, Debug)]
 pub struct SheetMeta {
     pub path: String,
@@ -21,7 +20,7 @@ pub struct SpriteInstance {
     pub y: f64,
     pub z: f64,
     pub pic: i32,
-    pub facing: i32, // 1 right, -1 left
+    pub facing: i32,
     pub mirror: bool,
     pub visible: bool,
     pub alpha: f64,
@@ -53,7 +52,6 @@ impl SpriteInstance {
     }
 }
 
-/// Canvas renderer with image cache
 pub struct CanvasRenderer {
     pub canvas: HtmlCanvasElement,
     pub ctx: CanvasRenderingContext2d,
@@ -98,15 +96,17 @@ impl CanvasRenderer {
     }
 
     pub fn ensure_image(&mut self, path: &str) {
-        if self.images.contains_key(path) { return; }
+        if self.images.contains_key(path) {
+            return;
+        }
         let img = document()
             .create_element("img")
             .ok()
             .and_then(|e| e.dyn_into::<HtmlImageElement>().ok());
         if let Some(img) = img {
-            let url = format!("{}/{}", self.asset_root, path);
+            let url = format!("{}/{}", self.asset_root, path.trim_start_matches('/'));
             img.set_src(&url);
-            img.set_cross_origin(Some("anonymous"));
+            let _ = img.set_attribute("crossorigin", "anonymous");
             self.images.insert(path.to_string(), img);
         }
     }
@@ -116,27 +116,35 @@ impl CanvasRenderer {
         self.ctx.fill_rect(0.0, 0.0, self.width, self.height);
     }
 
+    /// Draw LF2 sprite: feet at (x, z) on ground plane; y is height (negative = up)
     pub fn draw_sprite(&mut self, sp: &SpriteInstance, centerx: f64, centery: f64) {
-        if !sp.visible || sp.pic < 0 { return; }
+        if !sp.visible || sp.pic < 0 {
+            return;
+        }
         let pic = sp.pic as u32;
-        let Some((sx, sy, sw, sh, path)) = sp.pic_uv(pic) else { return; };
+        let Some((sx, sy, sw, sh, path)) = sp.pic_uv(pic) else {
+            return;
+        };
         self.ensure_image(path);
-        let Some(img) = self.images.get(path) else { return; };
-        if !img.complete() { return; }
+        let Some(img) = self.images.get(path) else {
+            return;
+        };
+        if !img.complete() || img.natural_width() == 0 {
+            return;
+        }
 
-        let screen_x = sp.x - self.cam_x;
-        let screen_y = sp.y - sp.z * 0.0 - self.cam_y; // z is depth; y is height in LF2
-        // In LF2, ps.y is height (up), ps.z is depth on ground plane
-        // Render position: x, z maps to screen y offset
-        let draw_x = screen_x - centerx;
-        let draw_y = (sp.z - self.cam_y) - centery - sp.y; // ground line uses z; y lifts up
+        // Screen: x horizontal, z maps to vertical with y lifting sprite up
+        let feet_x = sp.x - self.cam_x;
+        let feet_y = sp.z - self.cam_y;
+        let draw_x = feet_x - centerx;
+        let draw_y = feet_y - centery + sp.y; // y negative => draw higher
 
         self.ctx.save();
         let _ = self.ctx.set_global_alpha(sp.alpha);
         let mirror = sp.mirror || sp.facing < 0;
         if mirror {
-            self.ctx.translate(draw_x + sw, draw_y).ok();
-            self.ctx.scale(-1.0 * sp.scale_x, sp.scale_y).ok();
+            let _ = self.ctx.translate(draw_x + sw * sp.scale_x, draw_y);
+            let _ = self.ctx.scale(-sp.scale_x, sp.scale_y);
             let _ = self.ctx.draw_image_with_html_image_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
                 img, sx, sy, sw, sh, 0.0, 0.0, sw, sh,
             );
@@ -166,9 +174,30 @@ impl CanvasRenderer {
         }
     }
 
+    pub fn fill_rect_color(&self, x: f64, y: f64, w: f64, h: f64, color: &str) {
+        self.ctx.set_fill_style_str(color);
+        self.ctx.fill_rect(x, y, w, h);
+    }
+
     pub fn fill_text(&self, text: &str, x: f64, y: f64, color: &str, font: &str) {
         self.ctx.set_fill_style_str(color);
         self.ctx.set_font(font);
         let _ = self.ctx.fill_text(text, x, y);
     }
+}
+
+/// LF2 `rect` color integer → CSS hex (5-6 bit RGB style used by LF2)
+pub fn lf2_rect_color(rect: i64) -> String {
+    // Common approach: treat as 0xRRGGBB-ish 16-bit LF color
+    let r = ((rect / 65536) % 256) as u8;
+    let g = ((rect / 256) % 256) as u8;
+    let b = (rect % 256) as u8;
+    // LF2 often stores 16-bit — try both
+    if rect < 65536 {
+        let r = ((rect >> 11) & 0x1F) as u8 * 8;
+        let g = ((rect >> 5) & 0x3F) as u8 * 4;
+        let b = (rect & 0x1F) as u8 * 8;
+        return format!("#{:02x}{:02x}{:02x}", r, g, b);
+    }
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
 }

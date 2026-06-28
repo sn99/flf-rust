@@ -12,20 +12,11 @@ impl SpecialAttack {
         };
         s.base.ps.y = y;
         s.base.facing = facing;
-        s.base.transit(0);
+        s.base.trans_frame(0, 0);
         s
     }
 
     pub fn tu(&mut self, bg_z: (f64, f64), bg_w: f64) {
-        // projectiles often use frame dvx
-        if let Some(fd) = self.base.frame().cloned() {
-            if fd.dvx != 0.0 {
-                self.base.vx = fd.dvx * self.base.facing as f64;
-            }
-            if fd.dvy != 0.0 {
-                self.base.vy = fd.dvy;
-            }
-        }
-        self.base.tu_base(bg_z, bg_w);
+        self.base.physics_tu(bg_z, bg_w);
     }
 }
