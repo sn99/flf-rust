@@ -537,9 +537,25 @@ impl Character {
                 }
                 if jump {
                     if holding_heavy {
-                        if !self.base.proper_bool("heavy_weapon_jump") {
+                        // default allow unless property explicitly false — missing key => true in F.LF often
+                        let allow = self.weapon_proper_bool("heavy_weapon_jump")
+                            || self.base
+                                .properties
+                                .get(&self.hold_weapon_oid.to_string())
+                                .and_then(|o| o.get("heavy_weapon_jump"))
+                                .is_none();
+                        if self.hold_weapon_oid != 0
+                            && self
+                                .base
+                                .properties
+                                .get(&self.hold_weapon_oid.to_string())
+                                .and_then(|o| o.get("heavy_weapon_jump"))
+                                .and_then(|v| v.as_bool())
+                                == Some(false)
+                        {
                             return;
                         }
+                        let _ = allow;
                     }
                     if self.base.try_hit_tag("hit_j") || self.base.trans_frame(210, 10) {
                         self.running = false;
@@ -648,7 +664,7 @@ impl Character {
             5 => {
                 if att {
                     // back attack only if property allows when facing wrong way — simplify always allow unless false
-                    if self.base.proper_bool("dash_backattack") || true {
+                    {
                         self.base.trans_frame(90, 10);
                     }
                 }

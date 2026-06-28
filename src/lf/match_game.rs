@@ -498,6 +498,9 @@ impl Match {
                 let uid = self.characters[j].base.uid;
                 drops.push((uid, dvx * facing as f64, dvy_use));
             }
+            if self.characters[j].base.hp <= 0.0 && !self.characters[j].base.dead {
+                self.characters[i].base.kills += 1;
+            }
             match snd_eff {
                 2 | 20 | 21 | 22 | 23 => self.sound.play("1/070"),
                 3 | 30 => {
@@ -913,14 +916,14 @@ impl Match {
                     if itr.kind != 0 && itr.kind != 3 { continue; }
                     for b in &bdys {
                         if vol.intersects(b) {
-                            events.push((si, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy));
+                            events.push((si, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy, itr.effect, itr.kind));
                         }
                     }
                 }
             }
         }
         let mut drops = vec![];
-        for (si, ci, inj, fall, dvx, dvy) in events {
+        for (si, ci, inj, fall, dvx, dvy, eff, ikind) in events {
             let facing = self.specials[si].base.facing;
             let att_x = self.specials[si].base.ps.x;
             let next_frame = self.specials[si]
@@ -934,8 +937,8 @@ impl Match {
                 dvx * facing as f64,
                 if dvy != 0.0 { dvy } else { -3.0 },
                 att_x,
-                0,
-                0,
+                eff,
+                ikind,
             );
             if drop_w {
                 drops.push(self.characters[ci].base.uid);
@@ -1470,6 +1473,7 @@ impl Match {
             self.characters[ci].base.holding_uid = Some(uid);
             self.characters[ci].base.hold_type = wtype;
             self.characters[ci].base.itr_arest_update(3);
+            self.sound.play("1/020");
         }
     }
 
@@ -1813,6 +1817,9 @@ impl Match {
                 ren.draw_image_scaled(&ch.base.data.bmp.head, x + 4.0, y + 8.0, 40.0, 40.0);
             }
             ren.fill_text(&ch.base.name, x + 48.0, y + 48.0, "#afdcff", "11px sans-serif");
+            if ch.base.kills > 0 {
+                ren.fill_text(&format!("K:{}", ch.base.kills), x + pane_w - 36.0, y + 48.0, "#ffaa00", "10px sans-serif");
+            }
         }
     }
 }

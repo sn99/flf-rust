@@ -245,6 +245,31 @@ impl LivingObject {
         }
     }
 
+
+    /// Animate oscillate between frames a..b (LF livingobject.frame_ani_oscillate)
+    pub fn frame_ani_oscillate(&mut self, a: i32, b: i32) {
+        if self.effect.oscillate == 0.0 {
+            self.effect.oscillate = 1.0;
+            self.trans.set_next(a + 1, 5);
+            return;
+        }
+        let cur = self.frame.n;
+        let up = self.effect.oscillate > 0.0;
+        if up {
+            if cur < b {
+                self.trans.set_next(cur + 1, 5);
+            } else {
+                self.effect.oscillate = -1.0;
+                self.trans.set_next((cur - 1).max(a), 5);
+            }
+        } else if cur > a {
+            self.trans.set_next(cur - 1, 5);
+        } else {
+            self.effect.oscillate = 1.0;
+            self.trans.set_next(cur + 1, 5);
+        }
+    }
+
     pub fn set_mass(&mut self, mass: f64) {
         self.mech.mass = mass;
     }
