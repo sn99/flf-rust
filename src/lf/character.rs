@@ -110,7 +110,7 @@ impl Character {
         }
         self.combo.tick();
         let state = self.base.state();
-        self.base.allow_switch_dir = matches!(state, 0 | 1 | 2 | 4 | 5 | 7);
+        self.base.allow_switch_dir = matches!(state, 0 | 1 | 4 | 7); // 2 run 5 dash lock facing (F.LF states_switch_dir)
 
         // state entry hooks
         match state {
