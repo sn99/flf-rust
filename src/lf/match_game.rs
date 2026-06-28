@@ -1787,6 +1787,19 @@ impl Match {
         if self.game_over {
             ren.fill_rect_color(200.0, 150.0, 400.0, 100.0, "rgba(0,0,0,0.75)");
             ren.fill_text("GAME OVER", 300.0, 195.0, "#ff0", "bold 32px sans-serif");
+            let mut ky = 220.0;
+            for ch in &self.characters {
+                if ch.base.kills > 0 || !ch.base.removed {
+                    ren.fill_text(
+                        &format!("{}  K:{} HP:{:.0}", ch.base.name, ch.base.kills, ch.base.hp.max(0.0)),
+                        280.0,
+                        ky,
+                        "#ccc",
+                        "12px sans-serif",
+                    );
+                    ky += 16.0;
+                }
+            }
             if let Some(t) = self.winner_team {
                 let names: Vec<_> = self.characters.iter()
                     .filter(|c| c.base.team == t && !c.base.removed)
