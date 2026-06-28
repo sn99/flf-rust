@@ -195,6 +195,7 @@ impl Match {
         self.effects.retain(|e| !e.base.removed && !e.base.dead);
 
         self.process_hits();
+        self.process_catches();
         self.special_hits();
         self.spawn_opoints();
         self.pick_weapons();
@@ -299,6 +300,78 @@ impl Match {
                 let mut eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
                 self.next_uid += 1;
                 self.effects.push(eo);
+            }
+        }
+    }
+
+
+    /// itr kind 1 — catch (walking frames)
+    fn process_catches(&mut self) {
+        let n = self.characters.len();
+        let mut catches: Vec<(usize, usize, i32, i32)> = vec![]; // att, vic, catchingact, caughtact
+        for i in 0..n {
+            if self.characters[i].base.removed { continue; }
+            let Some(frame) = self.characters[i].base.frame_data().cloned() else { continue };
+            let itrs = Mech::itr_volumes(&self.characters[i].base.ps, self.characters[i].base.facing, &frame);
+            for j in 0..n {
+                if i == j || self.characters[j].base.removed { continue; }
+                if self.characters[i].base.team == self.characters[j].base.team && self.characters[i].base.team != 0 { continue; }
+                let Some(vframe) = self.characters[j].base.frame_data().cloned() else { continue };
+                // only catch if victim in fall-ish or stand vulnerable
+                if !matches!(self.characters[j].base.state(), 0 | 1 | 8 | 11 | 12 | 16) { continue; }
+                let bdys = Mech::body_volumes(&self.characters[j].base.ps, self.characters[j].base.facing, &vframe);
+                for (vol, itr) in &itrs {
+                    if itr.kind != 1 { continue; }
+                    for b in &bdys {
+                        if vol.intersects(b) {
+                            let ca = itr.catchingact.first().copied().unwrap_or(120);
+                            let co = itr.caughtact.first().copied().unwrap_or(130);
+                            catches.push((i, j, ca, co));
+                        }
+                    }
+                }
+            }
+        }
+        for (i, j, ca, co) in catches {
+            self.characters[i].base.trans_frame(ca, 15);
+            self.characters[j].base.trans_frame(co, 15);
+            self.characters[i].base.holding_uid = Some(self.characters[j].base.uid);
+            self.characters[j].base.held_by = Some(self.characters[i].base.uid);
+        }
+        // sync caught position to catcher cpoint roughly
+        for i in 0..n {
+            if let Some(vid) = self.characters[i].base.holding_uid {
+                if let Some(fd) = self.characters[i].base.frame_data() {
+                    if let Some(cp) = &fd.cpoint {
+                        let x = self.characters[i].base.ps.x + (cp.x - fd.centerx) * self.characters[i].base.facing as f64;
+                        let y = self.characters[i].base.ps.y + (cp.y - fd.centery);
+                        let z = self.characters[i].base.ps.z;
+                        if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                            ch.base.ps.x = x;
+                            ch.base.ps.y = y;
+                            ch.base.ps.z = z;
+                            ch.base.ps.vx = 0.0;
+                            ch.base.ps.vy = 0.0;
+                            ch.base.ps.vz = 0.0;
+                            // throw on att while catching (state 9)
+                            // handled via frame taction in future
+                        }
+                    }
+                }
+                // release if catcher not in catch frames
+                let st = self.characters[i].base.state();
+                if st != 9 && self.characters[i].base.frame.n < 120 || self.characters[i].base.frame.n > 140 && st != 9 {
+                    // keep while in 120-140 range
+                }
+                let fn_ = self.characters[i].base.frame.n;
+                if !(120..=150).contains(&fn_) && self.characters[i].base.state() != 9 {
+                    let vid = self.characters[i].base.holding_uid.take();
+                    if let Some(vid) = vid {
+                        if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                            ch.base.held_by = None;
+                        }
+                    }
+                }
             }
         }
     }
