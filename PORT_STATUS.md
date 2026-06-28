@@ -15,25 +15,30 @@ https://project-f.github.io/F.LF/game/game.html
 ### Implemented in this pass / overall
 - Frame **transistor** (authority locks)
 - **LivingObject**: physics, frame_force, injure/heal, effects stuck/create, transit
-- **Character** states 0–19, 301, 400/401, 1700; combos; weapons hold; catch/throw hooks
-- **character_ids**: Deep/Rudolf/John/Firen/Freeze/Davis-style TU hooks; **teleport 400/401**
+- **Character** states 0–19, 301, 400/401, 501, 1700; combos; weapons hold; catch/throw hooks
+- **character_ids**: full **id_update** event matrix (state3_*, state15_crouch, disappear, rudolf_transform/revert, Louis hit_ja block, Davis hit_stop)
+- **Rudolf transform**: swap object data + smoke 204; DJA revert
+- **Catch/cpoint**: injury, vaction, taction/aaction/jaction, cover zz, throwinjury delayed land
+- **Fall recovery** jump on 182/188; fall wait180; lying clears fall/bdefend
+- **Disappear** blink counter (Rudolf 257 / 1280)
+- **Teleport** 400/401 via scene query
 - **Scene query** (distance sort for teleport/AI targets)
-- **Weapons**: light/heavy land bounce, hold/drop, weapon→char hits
+- **Weapons**: light/heavy land bounce, hold/drop, weapon→char hits, broken 320 debris
 - **Specials**: hit_a HP drain, hit_j vz, off-stage despawn
-- **Effects**: blood/blast by itr.effect
-- **Match**: hits, catches, throws, AI (3-TU skip), sounds, panels, camera
+- **Effects**: blood/blast by itr.effect; ice exit debris
+- **Match**: hits + Davis hit_stop override, catches, throws, AI (chase/def/special/fall recover), sounds, panels, camera
 - **Soundpack**: audio sprite from soundpack.json
-- **Manager**: frontpage/char/COM/VS/settings/network UI; F5–F7; network connect log
+- **Manager**: frontpage/char/COM/VS/settings/network UI; F2/F5–F7; demo; network connect log
 - **Touch** on-screen pad; **sprite** helper module
 - **Network**: session shell (no PeerJS lockstep)
 
 ### Still not equal to every F.LF line
-- Full **id_update** (Rudolf transform, Louis, all Deep frames, etc.)
-- **All itr kinds** and exact hit-stop / cpoint matrix
-- **Peer multiplayer** lockstep
+- Pixel-perfect **Rudolf transform** panel + full create_transform_character lifecycle
+- **All itr kinds** (6 super punch scope, exact arest/vrest matrix)
+- **Peer multiplayer** lockstep (WebRTC/PeerJS)
 - Pixel-perfect **manager** DOM (key changer tables, maximize/wide every path)
-- **AI scripts** executed from LF2_19/AI/*.js (heuristics only)
-- Full **effects-pool** / **broken** fragments (320)
+- **AI scripts** executed from LF2_19/AI/*.js (heuristics only, improved)
+- Full **effects-pool** object reuse
 - DOM sprite path (canvas only in Rust)
 
-**Honest summary:** Hosted **F.LF JS = complete game**. **Rust = advanced but incomplete** rewrite; continue in `src/` for true engine parity.
+**Honest summary:** Hosted **F.LF JS = complete game**. **Rust = advanced incomplete** rewrite; this pass closed major id_update / catch / transform gaps. Continue in `src/` for engine parity.

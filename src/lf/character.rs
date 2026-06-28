@@ -18,6 +18,17 @@ pub struct Character {
     pub catch_counter: i32,
     pub catch_attacks: i32,
     pub caught_throwinjury: f64,
+    /// Rudolf transform bookkeeping (LF character.js transform_character)
+    pub is_rudolf_transform: bool,
+    pub transform_target_uid: Option<u32>,
+    pub transform_target_id: i32,
+    pub transform_caught_id: i32,
+    pub pending_transform: bool,
+    pub pending_revert_transform: bool,
+    /// spawn broken effect id on ice exit (state 13)
+    pub pending_broken_effect: i32,
+    /// cpoint injury applied once per catch TU sync
+    pub catch_injury_pending: bool,
 }
 
 impl Character {
@@ -39,6 +50,14 @@ impl Character {
             catch_counter: 0,
             catch_attacks: 0,
             caught_throwinjury: 0.0,
+            is_rudolf_transform: false,
+            transform_target_uid: None,
+            transform_target_id: 0,
+            transform_caught_id: 0,
+            pending_transform: false,
+            pending_revert_transform: false,
+            pending_broken_effect: 0,
+            catch_injury_pending: false,
         }
     }
 
@@ -128,18 +147,42 @@ impl Character {
             9 => {
                 self.catch_counter -= 1;
                 if self.catch_counter <= 0 {
-                    // release
-                    self.base.holding_uid = None;
-                    self.base.trans_frame(0, 10);
+                    // release unless finishing 5th punch on 122
+                    if !(self.base.frame.n == 122 && self.catch_attacks == 4) {
+                        if matches!(self.base.frame.n, 121 | 122) {
+                            self.base.holding_uid = None;
+                            self.base.trans_frame(0, 15);
+                        }
+                    }
                 }
-                if self.base.frame.n == 123 {
-                    self.catch_attacks += 1;
-                    self.catch_counter += 3;
-                    self.base.trans.inc_wait(1, 10, 1);
+                match self.base.frame.n {
+                    123 => {
+                        self.catch_attacks += 1;
+                        self.catch_counter += 3;
+                        self.base.trans.inc_wait(1, 10, 1);
+                    }
+                    233 | 234 => {
+                        self.base.trans.inc_wait(-1, 10, 1);
+                    }
+                    240 => {
+                        let _ = crate::lf::character_ids::id_update(self, "rudolf_transform", None);
+                    }
+                    _ => {}
+                }
+                // cover zz from cpoint
+                if let Some(fd) = self.base.frame_data() {
+                    if let Some(cp) = &fd.cpoint {
+                        let cover = if cp.cover != 0 { cp.cover } else { 0 };
+                        self.base.ps.zz = if cover == 0 || cover == 10 { 1.0 } else { -1.0 };
+                    }
                 }
             }
             10 => {
-                // being caught — position set by match
+                // being caught — lift against gravity on 135
+                if self.base.frame.n == 135 {
+                    self.base.ps.vy = 0.0;
+                }
+                self.base.trans.set_wait(99, 10, 99);
             }
             11 => {
                 // injured lock
@@ -152,28 +195,80 @@ impl Character {
                 self.state12_fall_tu();
             }
             13 => {
-                // frozen — no input
+                // frozen — no input; broken effect on exit flagged in id_tu
             }
             14 => {
+                // lying entry: clear fall meters
+                if self.base.frame.pn != 14 {
+                    self.base.fall = 0.0;
+                    self.base.bdefend = 0.0;
+                }
                 if self.base.hp <= 0.0 && self.base.counter_dead_blink < 0 {
                     self.base.counter_dead_blink = 0;
                 }
             }
-            15 => {}
+            15 => {
+                // stop_running / crouch / weapon throws
+                let n = self.base.frame.n;
+                let pn = self.base.frame.pn;
+                if n == 19 && self.hold_weapon.is_some() && self.base.hold_type == "heavyweapon" {
+                    self.base.trans.set_next(12, 10);
+                }
+                if n == 215 {
+                    self.base.trans.inc_wait(-1, 10, 1);
+                }
+                if n == 219 {
+                    if !crate::lf::character_ids::id_update(self, "state15_crouch", None) {
+                        match pn {
+                            105 => {
+                                // unit friction after rowing
+                                self.base.ps.vx *= 0.5;
+                                self.base.ps.vz *= 0.5;
+                            }
+                            216 | 90 | 91 | 92 => {
+                                self.base.trans.inc_wait(-1, 10, 1);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if n == 54 {
+                    if let Some(fd) = self.base.frame_data() {
+                        if fd.next == 999 && self.base.ps.y < 0.0 {
+                            self.base.trans.set_next(212, 10);
+                        }
+                    }
+                }
+                if n == 257 {
+                    let _ = crate::lf::character_ids::id_update(self, "state1280_disappear", None);
+                }
+            }
             16 => {}
-            18 | 19 => {}
+            18 | 19 => {
+                // firen-specific handled in id_tu; generic burn drift
+            }
             301 => {
-                // deep specific — data driven
+                // deep specific — walking_speedz on TU in id_tu
+                if self.base.frame.n != 290 {
+                    // frame_force disabled for non-290 (state3_frame_force pattern)
+                }
             }
             400 | 401 => {
-                // teleport — match applies targets
+                // teleport — match applies targets on frame entry
             }
             501 => {
-                // generic special state — frames drive
+                // generic special / rudolf transform finish
                 self.base.allow_switch_dir = false;
+                if self.base.frame.n == 298 {
+                    let _ = crate::lf::character_ids::id_update(self, "rudolf_transform", None);
+                }
             }
             1700 => {
-                // heal state
+                // heal state — set heal aura duration
+                if self.base.frame.pn != 1700 {
+                    self.base.effect.timeout = 30;
+                    self.base.effect.super_armor = true;
+                }
                 if self.base.hp < self.base.hp_full {
                     self.base.hp = (self.base.hp + 2.0).min(self.base.hp_full);
                 }
@@ -295,6 +390,26 @@ impl Character {
         }
         if let Some(name) = self.combo.match_combo() {
             if let Some(tag) = global::combo_tag(&name) {
+                // DJA revert transform for Rudolf copies
+                if name == "DJA" && self.is_rudolf_transform {
+                    let _ = crate::lf::character_ids::id_update(self, "revert_transform", None);
+                    self.combo.clear();
+                    self.running = false;
+                    return;
+                }
+                // Deep faces along Fj direction
+                if tag == "hit_Fj" && self.base.id == 1 {
+                    if name.contains('>') || name == "D>J" || name == "D>AJ" {
+                        self.switch_dir("right");
+                    } else {
+                        self.switch_dir("left");
+                    }
+                }
+                if crate::lf::character_ids::id_update(self, "generic_combo", Some(tag)) {
+                    // blocked (e.g. Louis hit_ja)
+                    self.combo.clear();
+                    return;
+                }
                 if self.base.try_hit_tag(tag) {
                     let clear = self
                         .combo
@@ -470,13 +585,50 @@ impl Character {
                 // broken defend — wait for frames
             }
             9 => {
-                if att {
-                    self.base.trans_frame(121, 12);
+                // cpoint taction / aaction / jaction
+                if let Some(fd) = self.base.frame_data().cloned() {
+                    if let Some(cp) = fd.cpoint.clone() {
+                        if att {
+                            let dx = left != right;
+                            let dy = up != down;
+                            if (dx || dy) && cp.taction != 0 {
+                                let tac = cp.taction;
+                                if tac < 0 {
+                                    let nd = if self.base.facing > 0 { "left" } else { "right" };
+                                    self.switch_dir(nd);
+                                    self.base.trans_frame(-tac, 10);
+                                } else {
+                                    self.base.trans_frame(tac, 10);
+                                }
+                                self.catch_counter += 10;
+                            } else if cp.aaction != 0 {
+                                self.base.trans_frame(cp.aaction, 10);
+                            } else {
+                                self.base.trans_frame(121, 12);
+                            }
+                        }
+                        if jump && self.base.frame.n == 121 && cp.jaction != 0 {
+                            self.base.trans_frame(cp.jaction, 10);
+                        } else if jump {
+                            self.base.trans_frame(122, 12);
+                        }
+                        if cp.dircontrol == 1 {
+                            if left {
+                                self.switch_dir("left");
+                            }
+                            if right {
+                                self.switch_dir("right");
+                            }
+                        }
+                    } else {
+                        if att {
+                            self.base.trans_frame(121, 12);
+                        }
+                        if jump {
+                            self.base.trans_frame(122, 12);
+                        }
+                    }
                 }
-                if jump {
-                    self.base.trans_frame(122, 12);
-                }
-                // dircontrol
                 if left {
                     self.switch_dir("left");
                 }
@@ -484,8 +636,57 @@ impl Character {
                     self.switch_dir("right");
                 }
             }
-            3 | 15 => {
-                // attacks / weapon throws driven by frames
+            12 => {
+                // fall recovery jump on 182/188
+                let n = self.base.frame.n;
+                if jump && matches!(n, 182 | 188) && self.base.fall < global::FALL_KO && self.base.hp > 0.0 {
+                    if n == 182 {
+                        self.base.trans_frame(100, 10);
+                    } else {
+                        self.base.trans_frame(108, 10);
+                    }
+                    if self.base.ps.vx != 0.0 {
+                        self.base.ps.vx = 5.0 * self.base.ps.vx.signum();
+                    }
+                    if self.base.ps.vy == 0.0 {
+                        self.base.ps.vy = 5.0;
+                    }
+                    if self.base.ps.vz != 0.0 {
+                        self.base.ps.vz = 2.0 * self.base.ps.vz.signum();
+                    }
+                }
+            }
+            3 => {
+                // attack state — id_update state3_frame on frame change
+                let _ = crate::lf::character_ids::id_update(self, "state3_frame", None);
+            }
+            15 => {
+                // crouch after jump: def→rowing, jump→dash variants
+                if self.base.frame.n == 215 {
+                    if defend {
+                        self.base.trans_frame(102, 10);
+                    }
+                    if jump {
+                        let mut dx = 0i32;
+                        if left {
+                            dx -= 1;
+                        }
+                        if right {
+                            dx += 1;
+                        }
+                        if dx != 0 {
+                            self.base.trans_frame(213, 10);
+                            self.switch_dir(if dx == 1 { "right" } else { "left" });
+                        } else if self.base.ps.vx == 0.0 {
+                            self.base.trans.inc_wait(2, 10, 99);
+                            self.base.trans.set_next(210, 10);
+                        } else if (self.base.ps.vx > 0.0) == (self.base.facing > 0) {
+                            self.base.trans_frame(213, 10);
+                        } else {
+                            self.base.trans_frame(214, 10);
+                        }
+                    }
+                }
             }
             _ => {}
         }

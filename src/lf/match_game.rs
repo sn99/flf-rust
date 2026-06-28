@@ -237,6 +237,26 @@ impl Match {
             self.characters[i].apply_teleport_targets(ne, fa);
         }
 
+        // Rudolf transform / revert (approximate: swap object data id while keeping uid/team/hp)
+        self.process_transforms();
+
+        // pending ice broken effects
+        let mut broken_spawns: Vec<(f64, f64, f64, i32)> = vec![];
+        for ch in &mut self.characters {
+            if ch.pending_broken_effect != 0 {
+                broken_spawns.push((
+                    ch.base.ps.x,
+                    ch.base.ps.y - 30.0,
+                    ch.base.ps.z,
+                    ch.pending_broken_effect,
+                ));
+                ch.pending_broken_effect = 0;
+            }
+        }
+        for (x, y, z, _fid) in broken_spawns {
+            self.spawn_broken(x, y, z);
+        }
+
         // frame sounds
         for ch in &mut self.characters {
             if let Some(path) = ch.base.take_sound() {
@@ -338,10 +358,12 @@ impl Match {
         for (i, j, injury, fall, dvx, dvy, arest, eff, ikind) in events {
             let facing = self.characters[i].base.facing;
             self.characters[i].base.arest = if arest > 0 { arest } else { global::DEFAULT_AREST };
-            // hit_stop: stall attacker frame wait (F.LF default 3)
-            let hs = global::DEFAULT_HIT_STOP;
-            self.characters[i].base.trans.inc_wait(hs, 20, 1);
-            self.characters[i].base.trans.wait = self.characters[i].base.trans.wait.max(hs);
+            // hit_stop: stall attacker; Davis/Deep overrides via id_update
+            if !crate::lf::character_ids::state3_hit_stop(&mut self.characters[i]) {
+                let hs = global::DEFAULT_HIT_STOP;
+                self.characters[i].base.trans.inc_wait(hs, 20, 1);
+                self.characters[i].base.trans.wait = self.characters[i].base.trans.wait.max(hs);
+            }
             let vid = self.characters[j].base.uid;
             self.characters[i]
                 .base
@@ -430,31 +452,50 @@ impl Match {
             self.characters[j].base.trans_frame(co, 15);
             self.characters[i].base.holding_uid = Some(self.characters[j].base.uid);
             self.characters[j].base.held_by = Some(self.characters[i].base.uid);
+            self.characters[i].catch_injury_pending = true;
+            // Rudolf: remember caught character id for transform
+            self.characters[i].transform_caught_id = self.characters[j].base.id;
+            self.characters[i].transform_target_uid = Some(self.characters[j].base.uid);
         }
-        // sync caught position to catcher cpoint roughly
+        // sync caught position to catcher cpoint; apply cpoint injury once per catch TU
+        let mut injuries: Vec<(u32, f64)> = vec![];
+        let mut vactions: Vec<(u32, i32)> = vec![];
         for i in 0..n {
             if let Some(vid) = self.characters[i].base.holding_uid {
-                if let Some(fd) = self.characters[i].base.frame_data() {
-                    if let Some(cp) = &fd.cpoint {
-                        let x = self.characters[i].base.ps.x + (cp.x - fd.centerx) * self.characters[i].base.facing as f64;
-                        let y = self.characters[i].base.ps.y + (cp.y - fd.centery);
-                        let z = self.characters[i].base.ps.z;
-                        if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
-                            ch.base.ps.x = x;
-                            ch.base.ps.y = y;
-                            ch.base.ps.z = z;
-                            ch.base.ps.vx = 0.0;
-                            ch.base.ps.vy = 0.0;
-                            ch.base.ps.vz = 0.0;
-                            // throw on att while catching (state 9)
-                            // handled via frame taction in future
+                let facing = self.characters[i].base.facing;
+                let (x, y, z, injury, vaction, apply_inj) = {
+                    if let Some(fd) = self.characters[i].base.frame_data() {
+                        if let Some(cp) = &fd.cpoint {
+                            let x = self.characters[i].base.ps.x
+                                + (cp.x - fd.centerx) * facing as f64;
+                            let y = self.characters[i].base.ps.y + (cp.y - fd.centery);
+                            let z = self.characters[i].base.ps.z;
+                            let apply = self.characters[i].catch_injury_pending && cp.injury > 0.0;
+                            (x, y, z, cp.injury, cp.vaction, apply)
+                        } else {
+                            continue;
                         }
+                    } else {
+                        continue;
                     }
+                };
+                if apply_inj {
+                    self.characters[i].catch_injury_pending = false;
+                    self.characters[i].base.trans.inc_wait(1, 10, 99);
+                    injuries.push((vid, injury));
                 }
-                // release if catcher not in catch frames
-                let st = self.characters[i].base.state();
-                if st != 9 && self.characters[i].base.frame.n < 120 || self.characters[i].base.frame.n > 140 && st != 9 {
-                    // keep while in 120-140 range
+                if vaction != 0 {
+                    vactions.push((vid, vaction));
+                }
+                if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                    ch.base.ps.x = x;
+                    ch.base.ps.y = y;
+                    ch.base.ps.z = z;
+                    ch.base.ps.vx = 0.0;
+                    ch.base.ps.vy = 0.0;
+                    ch.base.ps.vz = 0.0;
+                    // face catcher by default
+                    ch.base.facing = -facing;
                 }
                 let fn_ = self.characters[i].base.frame.n;
                 if !(120..=150).contains(&fn_) && self.characters[i].base.state() != 9 {
@@ -465,6 +506,17 @@ impl Match {
                         }
                     }
                 }
+            }
+        }
+        for (vid, inj) in injuries {
+            if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                ch.base.hp -= inj;
+                ch.base.injury_total += inj;
+            }
+        }
+        for (vid, va) in vactions {
+            if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                ch.base.trans_frame(va, 22);
             }
         }
     }
@@ -496,7 +548,15 @@ impl Match {
         }
         drop(ctrls);
         for (cuid, vid, vx, vy, vz) in releases {
+            let mut throw_inj = global::DEFAULT_THROW_INJURY;
             if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == cuid) {
+                if let Some(fd) = ch.base.frame_data() {
+                    if let Some(cp) = &fd.cpoint {
+                        if cp.throwinjury > 0.0 {
+                            throw_inj = cp.throwinjury;
+                        }
+                    }
+                }
                 ch.base.holding_uid = None;
             }
             if let Some(vic) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
@@ -504,8 +564,12 @@ impl Match {
                 vic.base.ps.vx = vx;
                 vic.base.ps.vy = vy;
                 vic.base.ps.vz = vz;
+                // impulse: move one step
+                vic.base.ps.x += vx;
+                vic.base.ps.y += vy * 2.0;
+                vic.base.ps.z += vz;
                 vic.base.trans_frame(180, 15); // fall
-                vic.base.hp -= 10.0;
+                vic.caught_throwinjury = throw_inj;
             }
         }
     }
@@ -587,6 +651,93 @@ impl Match {
                 );
                 self.weapons[wi].die();
                 self.spawn_broken(x, y, z);
+            }
+        }
+    }
+
+    /// Swap character data to transform target id (Rudolf) or back to 5.
+    fn process_transforms(&mut self) {
+        let mut jobs: Vec<(usize, i32, bool)> = vec![]; // idx, new_id, is_revert
+        for (i, ch) in self.characters.iter().enumerate() {
+            if ch.pending_revert_transform {
+                jobs.push((i, 5, true));
+            } else if ch.pending_transform && ch.transform_target_id != 0 {
+                jobs.push((i, ch.transform_target_id, false));
+            } else if ch.pending_transform && ch.transform_caught_id != 0 {
+                jobs.push((i, ch.transform_caught_id, false));
+            }
+        }
+        for (i, new_id, is_revert) in jobs {
+            let Some(data) = self.package_objects.get(&new_id).cloned() else {
+                self.characters[i].pending_transform = false;
+                self.characters[i].pending_revert_transform = false;
+                continue;
+            };
+            let ch = &mut self.characters[i];
+            let hp = ch.base.hp;
+            let mp = ch.base.mp;
+            let team = ch.base.team;
+            let uid = ch.base.uid;
+            let x = ch.base.ps.x;
+            let y = ch.base.ps.y;
+            let z = ch.base.ps.z;
+            let facing = ch.base.facing;
+            let ai = ch.base.ai;
+            let ci = ch.base.controller_index;
+            let name = ch.base.name.clone();
+            let was_transform = ch.is_rudolf_transform;
+            let t_uid = ch.transform_target_uid;
+            let t_id = if is_revert { 0 } else { new_id };
+            let caught_id = ch.transform_caught_id;
+
+            let mut neu = Character::new(uid, data, team, x, z);
+            neu.base.ps.y = y;
+            neu.base.hp = hp;
+            neu.base.mp = mp;
+            neu.base.facing = facing;
+            neu.base.ai = ai;
+            neu.base.controller_index = ci;
+            neu.base.name = name;
+            neu.base.effect.blink = true;
+            neu.base.effect.super_armor = true;
+            neu.base.effect.timeout = 20;
+            if is_revert {
+                neu.is_rudolf_transform = false;
+                neu.transform_target_id = 0;
+                neu.transform_caught_id = 0;
+                neu.transform_target_uid = None;
+            } else {
+                neu.is_rudolf_transform = true;
+                neu.transform_target_id = t_id;
+                neu.transform_caught_id = caught_id;
+                neu.transform_target_uid = t_uid;
+                // release held victim after transform
+                if let Some(vid) = ch.base.holding_uid {
+                    // clear victim held_by below
+                    let _ = vid;
+                }
+            }
+            let hold = ch.base.holding_uid.take();
+            *ch = neu;
+            if let Some(vid) = hold {
+                if let Some(vic) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                    vic.base.held_by = None;
+                    vic.base.trans_frame(212, 10);
+                }
+            }
+            let _ = was_transform;
+            // smoke opoint 204 if available
+            if let Some(data) = self.package_objects.get(&204).cloned() {
+                let eo = crate::lf::effect::EffectObj::with_frame(
+                    self.next_uid,
+                    data,
+                    x,
+                    y - 70.0,
+                    z,
+                    70,
+                );
+                self.next_uid += 1;
+                self.effects.push(eo);
             }
         }
     }

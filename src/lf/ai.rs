@@ -1,15 +1,22 @@
-//! AI — improved chase / defend / special from LF/AI.js patterns
+//! AI — chase / defend / special / fall-recover patterns from LF/AI.js
 use crate::core_engine::controller::Controller;
 use crate::lf::livingobject::LivingObject;
 
 pub struct AiBrain {
     pub cc: u32,
     pub target_uid: Option<u32>,
+    pub run_phase: u8,
+    pub special_phase: u8,
 }
 
 impl Default for AiBrain {
     fn default() -> Self {
-        Self { cc: 0, target_uid: None }
+        Self {
+            cc: 0,
+            target_uid: None,
+            run_phase: 0,
+            special_phase: 0,
+        }
     }
 }
 
@@ -23,6 +30,19 @@ pub fn ai_fill(
 ) {
     brain.cc = brain.cc.wrapping_add(1);
     ctrl.clear_states();
+
+    let st = self_obj.state();
+
+    // while falling — try recover jump on frames approximated by state 12
+    if st == 12 && self_obj.fall < 60.0 && self_obj.hp > 0.0 && brain.cc % 7 == 0 {
+        ctrl.keypress("jump");
+        return;
+    }
+
+    // frozen / caught / lying — no actions
+    if matches!(st, 10 | 13 | 14) {
+        return;
+    }
 
     // acquire target every 100 TU
     if brain.cc % 100 == 1 || brain.target_uid.is_none() {
@@ -44,33 +64,34 @@ pub fn ai_fill(
     let Some(tid) = brain.target_uid else {
         return;
     };
-    let Some((_, tx, tz, _ty, tstate)) = enemies.iter().find(|e| e.0 == tid) else {
+    let Some((_, tx, tz, ty, tstate)) = enemies.iter().find(|e| e.0 == tid) else {
         brain.target_uid = None;
         return;
     };
 
     let dx = tx - self_obj.ps.x;
     let dz = tz - self_obj.ps.z;
-    let st = self_obj.state();
+    let dy = ty - self_obj.ps.y;
 
-    // defend sometimes when close and enemy attacking (state 3)
-    if dx.abs() < 80.0 && dz.abs() < 20.0 && *tstate == 3 && time % 20 < 8 {
+    // defend when close and enemy attacking (state 3) or airborne threat
+    if dx.abs() < 90.0 && dz.abs() < 22.0 && (*tstate == 3 || *tstate == 5) && time % 18 < 7 {
         ctrl.keypress("def");
         return;
     }
 
-    if dx.abs() > 45.0 {
-        if dx > 0.0 {
-            ctrl.keypress("right");
-        } else {
-            ctrl.keypress("left");
-        }
-        // run when far
-        if dx.abs() > 160.0 && brain.cc % 2 == 0 {
-            // double tap simulation: already moving
+    // approach / run when far
+    if dx.abs() > 50.0 {
+        let dir = if dx > 0.0 { "right" } else { "left" };
+        ctrl.keypress(dir);
+        if dx.abs() > 140.0 {
+            // simulate double-tap run: pulse key
+            brain.run_phase = brain.run_phase.wrapping_add(1);
+            if brain.run_phase % 3 == 0 {
+                ctrl.keypress(dir);
+            }
         }
     }
-    if dz.abs() > 10.0 {
+    if dz.abs() > 12.0 {
         if dz > 0.0 {
             ctrl.keypress("down");
         } else {
@@ -79,25 +100,45 @@ pub fn ai_fill(
     }
 
     // attack when in range
-    if dx.abs() < 65.0 && dz.abs() < 16.0 {
+    if dx.abs() < 70.0 && dz.abs() < 18.0 {
         if *tstate != 14 {
-            // not lying
-            ctrl.keypress("att");
+            if dy < -20.0 {
+                // enemy airborne — jump attack setup
+                ctrl.keypress("jump");
+                if brain.cc % 4 == 0 {
+                    ctrl.keypress("att");
+                }
+            } else {
+                ctrl.keypress("att");
+            }
         }
-    } else if dx.abs() > 120.0 && brain.cc % 50 == 0 {
+    } else if dx.abs() > 110.0 && brain.cc % 45 == 0 {
         ctrl.keypress("jump");
     }
 
-    // occasional special: def+direction+att via sequential — approximate with att when mp high
-    if self_obj.mp > 200.0 && dx.abs() < 100.0 && brain.cc % 80 == 0 {
-        ctrl.keypress("def");
-        if dx > 0.0 {
-            ctrl.keypress("right");
-        } else {
-            ctrl.keypress("left");
+    // special sequences: def + direction + att/jump
+    if self_obj.mp > 180.0 && dx.abs() < 160.0 {
+        brain.special_phase = brain.special_phase.wrapping_add(1);
+        match brain.special_phase % 120 {
+            1..=3 => ctrl.keypress("def"),
+            4..=6 => {
+                if dx > 0.0 {
+                    ctrl.keypress("right");
+                } else {
+                    ctrl.keypress("left");
+                }
+            }
+            7..=9 => {
+                if self_obj.mp > 250.0 && brain.cc % 2 == 0 {
+                    ctrl.keypress("jump");
+                } else {
+                    ctrl.keypress("att");
+                }
+            }
+            _ => {}
         }
-        ctrl.keypress("att");
     }
 
+    // pick up weapon impulse when idle and far — att near weapons handled by match
     let _ = st;
 }
