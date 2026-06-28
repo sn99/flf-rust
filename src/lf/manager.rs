@@ -413,7 +413,7 @@ impl Manager {
     }
 
     /// F4: cycle canvas width normal → wide → tall maximize (LF manager maximize/wide)
-    fn cycle_view_mode(&mut self) {
+    pub fn cycle_view_mode(&mut self) {
         self.view_mode = (self.view_mode + 1) % 3;
         let (w, h) = match self.view_mode {
             0 => (global::WINDOW_WIDTH as u32, global::VIEWER_HEIGHT as u32),
@@ -436,6 +436,24 @@ impl Manager {
             if let Some(el) = root.dyn_ref::<HtmlElement>() {
                 let _ = el.style().set_property("max-width", &format!("{}px", w + 20));
             }
+        }
+        // F.LF maximize_button toggles .maximized on container + extra_UI
+        let maxed = self.view_mode >= 1;
+        if let Some(c) = util::qs(".container") {
+            let cl = c.class_list();
+            let _ = if maxed {
+                cl.add_1("maximized")
+            } else {
+                cl.remove_1("maximized")
+            };
+        }
+        if let Some(c) = util::qs(".extra_UI") {
+            let cl = c.class_list();
+            let _ = if maxed {
+                cl.add_1("maximized")
+            } else {
+                cl.remove_1("maximized")
+            };
         }
     }
 
@@ -774,6 +792,14 @@ impl Manager {
                                     m.paused = true;
                                 }
                             }
+                        } else if key == "F3" {
+                            if let Some(m) = g.match_game.as_mut() {
+                                let mut s = String::from("STATS ");
+                                for ch in &m.characters {
+                                    s.push_str(&format!("|{} K:{} HP:{:.0} ", ch.base.name, ch.base.kills, ch.base.hp));
+                                }
+                                m.overlay_message(&s);
+                            }
                         } else if key == "F5" {
                             // LF2 F5 reset positions-ish: restart match
                             g.start_match();
@@ -808,6 +834,16 @@ impl Manager {
                 arm(mgr2);
             });
             let _ = util::window().request_animation_frame(cb.as_ref().unchecked_ref());
+        }
+        {
+            let mgr2 = mgr.clone();
+            let closure = Closure::wrap(Box::new(move |_ev: MouseEvent| {
+                mgr2.borrow_mut().cycle_view_mode();
+            }) as Box<dyn FnMut(_)>);
+            if let Some(btn) = util::qs(".maximize_button") {
+                let _ = btn.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
+            }
+            closure.forget();
         }
         mgr.borrow_mut().render_frontpage_dom();
         arm(mgr);

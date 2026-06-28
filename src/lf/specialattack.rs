@@ -99,6 +99,8 @@ impl SpecialAttack {
         if self.base.frame.n >= 1000 || self.base.hp <= 0.0 && self.base.frame.n != 0 {
             self.base.removed = self.base.frame.n >= 1000;
         }
+        crate::lf::special_states::dispatch(self, "frame");
+        crate::lf::special_states::dispatch(self, "TU");
         self.base.physics_tu(bg_z, bg_w);
     }
 

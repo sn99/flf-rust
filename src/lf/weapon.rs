@@ -37,6 +37,8 @@ impl Weapon {
         if st == 1001 || st == 2001 {
             return;
         }
+        crate::lf::weapon_states::dispatch(self, "frame");
+        crate::lf::weapon_states::dispatch(self, "TU");
         self.base.physics_tu(bg_z, bg_w);
 
         // just landed

@@ -7,6 +7,8 @@ pub mod character;
 pub mod character_ids;
 pub mod character_states;
 pub mod weapon;
+pub mod weapon_states;
+pub mod special_states;
 pub mod specialattack;
 pub mod effect;
 pub mod effects_pool;
