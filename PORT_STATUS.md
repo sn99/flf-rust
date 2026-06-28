@@ -1,24 +1,34 @@
-# Port status
+# Port status (post full analysis)
 
-## Complete playable game (1:1 F.LF)
-https://sn99.github.io/flf-rust/game/game.html — full JS F.LF + LF2_19
+See also [GAP_ANALYSIS.md](GAP_ANALYSIS.md).
 
-## Rust/WASM (advanced; not every F.LF line)
-https://sn99.github.io/flf-rust/rust/
+## Verdict
 
-### Done in Rust
-- Core match loop 30 TU/s, transistor locks, LO physics/frame wait
-- Character states, combos, weapons, specials, opoints, effects-pool
-- Combat: fall tiers, ice/fire, vrest/arest, itr kinds, catch/throw, super punch
-- AI difficult-tier heuristics (LF2 scripts are JS; behavior mirrored)
-- Network: **BroadcastChannel lockstep** (2 tabs, room id) + PeerJS hooks
-- Manager menus, settings rebind, F2/F4–F7, touch pad
+| Target | 1-on-1? |
+|--------|---------|
+| **F.LF JS + LF2_19** at `/game/game.html` | **Yes** — complete playable package |
+| **Rust WASM alone** at `/rust/` | **No** — deep engine port, not every F.LF line |
 
-### Still not equal to F.LF JS
-- Executing **LF2_19/AI/*.js** text scripts (would need JS eval bridge)
-- Full **PeerJS** lobby on lobby.projectf.hk (hooks only; use /game for that)
-- Pixel-perfect manager DOM / every UI path
-- DOM sprites (canvas only)
-- 100% TU scheduling edge cases
+## Repos
 
-**Honest:** JS host = complete game. Rust = deep engine port, multiplayer local lockstep, strong combat/AI; not a line-complete replacement of every F.LF file.
+- Engine reference: https://github.com/Project-F/F.LF
+- Data package: https://github.com/sn99/LF2_19
+- This port: https://github.com/sn99/flf-rust
+
+## Implemented toward parity (latest)
+
+- Combat, frames, weapons, specials, effects-pool, transform, manager UI
+- **LF2_19 AI scripts** via `www/js/ai_bridge.js` + preload (fallback heuristics)
+- **BroadcastChannel** lockstep multiplayer (2 tabs)
+- `create_object` / visualeffect / brokeneffect pipelines
+
+## Remaining vs true 1:1 Rust
+
+- Full PeerJS lobby (projectf) — hooks only
+- DOM sprite renderer
+- Pixel-perfect manager / controller-changer
+- Every TU edge case in 2k-line character.js
+- AI scripts that need full AIin frame cache / match APIs may partially fail → heuristics
+
+**Play complete game:** https://sn99.github.io/flf-rust/game/game.html  
+**Rust WIP:** https://sn99.github.io/flf-rust/rust/
