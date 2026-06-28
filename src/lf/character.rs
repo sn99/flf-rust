@@ -29,6 +29,10 @@ pub struct Character {
     pub pending_broken_effect: i32,
     /// cpoint injury applied once per catch TU sync
     pub catch_injury_pending: bool,
+    /// set by match when super-punch scope (frame 72/73) sees itr kind 6 victim
+    pub want_super_punch: bool,
+    /// drink weapon sip TU counter
+    pub drink_sips: i32,
 }
 
 impl Character {
@@ -58,6 +62,8 @@ impl Character {
             pending_revert_transform: false,
             pending_broken_effect: 0,
             catch_injury_pending: false,
+            want_super_punch: false,
+            drink_sips: 0,
         }
     }
 
@@ -455,8 +461,10 @@ impl Character {
                         }
                         return;
                     }
-                    // super punch scope would check itr kind 6 — approximate random 70
-                    let fr = if js_sys::Math::random() < 0.08 {
+                    // super punch: F.LF checks frames 72/73 itr volume for victims with itr kind 6
+                    // Match sets `want_super_punch` when scope hits; fallback heuristic near-random
+                    let fr = if self.want_super_punch {
+                        self.want_super_punch = false;
                         70
                     } else if js_sys::Math::random() < 0.5 {
                         60

@@ -45,6 +45,8 @@ pub struct Manager {
     frames_counted: u32,
     fps_timer: f64,
     running: Rc<Cell<bool>>,
+    /// pending key rebind (controller slot, action name)
+    rebind_target: Option<(usize, String)>,
 }
 
 #[derive(Clone)]
@@ -153,6 +155,7 @@ impl Manager {
             frames_counted: 0,
             fps_timer: js_sys::Date::now(),
             running: Rc::new(Cell::new(true)),
+            rebind_target: None,
         };
         // apply UI bg colors
         if let Some(fp) = util::div_class("frontpage") {
@@ -364,13 +367,46 @@ impl Manager {
         }
         html.push_str(
             r#"</table>
+            <p class="cs_hint">Click a key cell, then press a key to rebind. Esc/OK saves.</p>
+            <div class="keybind_row">P1 att defaults: j · P2 att: numpad 1 — click <kbd data-rebind="0:att">rebind P1 att</kbd>
+            <kbd data-rebind="1:att">rebind P2 att</kbd>
+            <kbd data-rebind="0:jump">P1 jump</kbd>
+            <kbd data-rebind="0:def">P1 def</kbd>
+            <kbd data-rebind="1:jump">P2 jump</kbd>
+            <kbd data-rebind="1:def">P2 def</kbd></div>
             <button type="button" class="ok_hit menu_hit" data-i="99">OK</button>
-            <p class="cs_hint">Esc or OK — back (key rebinding: edit localStorage F.LF/settings)</p>
             </div></div>"#,
         );
         if let Some(el) = util::div_class("settings") {
             el.set_inner_html(&html);
         }
+    }
+
+    /// Pending key rebind: (controller_index, action)
+    pub fn set_rebind_target(&mut self, slot: usize, action: &str) {
+        self.rebind_target = Some((slot, action.to_string()));
+        self.network.append_log(&format!(
+            "Press a key for P{} {}…",
+            slot + 1,
+            action
+        ));
+    }
+
+    pub fn apply_rebind_key(&mut self, key: &str) -> bool {
+        let Some((slot, action)) = self.rebind_target.take() else {
+            return false;
+        };
+        let mut ctrls = self.controllers.borrow_mut();
+        if let Some(c) = ctrls.get_mut(slot) {
+            let k = key.to_lowercase();
+            c.rebind(&action, &k);
+        }
+        drop(ctrls);
+        self.save_settings();
+        if self.screen == Screen::Settings {
+            self.render_settings_dom();
+        }
+        true
     }
 
     fn render_network_dom(&self) {
@@ -579,6 +615,20 @@ impl Manager {
                     g.vs_cursor = v;
                     g.on_vs_action(v);
                 }
+                // key rebind chips: data-rebind="0:att"
+                let mut walk2 = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                while let Some(e) = walk2 {
+                    if let Some(rb) = e.get_attribute("data-rebind") {
+                        let parts: Vec<_> = rb.split(':').collect();
+                        if parts.len() == 2 {
+                            if let Ok(slot) = parts[0].parse::<usize>() {
+                                g.set_rebind_target(slot, parts[1]);
+                            }
+                        }
+                        break;
+                    }
+                    walk2 = e.parent_element().and_then(|p| p.dyn_into().ok());
+                }
             }) as Box<dyn FnMut(_)>);
             if let Some(root) = util::qs(".LFroot") {
                 let _ = root.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
@@ -592,6 +642,10 @@ impl Manager {
                 let key = ev.key();
                 let k = key.to_lowercase();
                 let mut g = mgr2.borrow_mut();
+                if g.rebind_target.is_some() && k != "escape" {
+                    g.apply_rebind_key(&key);
+                    return;
+                }
                 match g.screen {
                     Screen::FrontPage => {
                         if k == "enter" || k == "s" {

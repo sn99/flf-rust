@@ -27,18 +27,20 @@ https://project-f.github.io/F.LF/game/game.html
 - **Specials**: hit_a HP drain, hit_j vz, off-stage despawn
 - **Effects**: blood/blast by itr.effect; ice exit debris
 - **Match**: hits + Davis hit_stop override, catches, throws, AI (chase/def/special/fall recover), sounds, panels, camera
+- **Super punch** scope (frames 72/73 vs victim itr kind 6 → frame 70)
+- **itr kind 16** whirlwind pull; **drink** weapon sip heal
+- **effects-pool** circular reuse for blood/blast + legacy effects vec
 - **Soundpack**: audio sprite from soundpack.json
-- **Manager**: frontpage/char/COM/VS/settings/network UI; F2/F5–F7; demo; network connect log
+- **Manager**: frontpage/char/COM/VS/settings/network UI; **click-to-rebind** keys; F2/F5–F7; demo; network connect log
 - **Touch** on-screen pad; **sprite** helper module
-- **Network**: session shell (no PeerJS lockstep)
+- **Network**: session shell + input queue (no PeerJS lockstep)
 
 ### Still not equal to every F.LF line
 - Pixel-perfect **Rudolf transform** panel + full create_transform_character lifecycle
-- **All itr kinds** (6 super punch scope, exact arest/vrest matrix)
+- Full **arest/vrest** matrix and every itr kind edge case (14 ice column, etc.)
 - **Peer multiplayer** lockstep (WebRTC/PeerJS)
-- Pixel-perfect **manager** DOM (key changer tables, maximize/wide every path)
+- Pixel-perfect **manager** DOM (maximize/wide every path)
 - **AI scripts** executed from LF2_19/AI/*.js (heuristics only, improved)
-- Full **effects-pool** object reuse
 - DOM sprite path (canvas only in Rust)
 
 **Honest summary:** Hosted **F.LF JS = complete game**. **Rust = advanced incomplete** rewrite; this pass closed major id_update / catch / transform gaps. Continue in `src/` for engine parity.

@@ -8,6 +8,7 @@ pub mod character_ids;
 pub mod weapon;
 pub mod specialattack;
 pub mod effect;
+pub mod effects_pool;
 pub mod background;
 pub mod scene;
 pub mod mechanics;

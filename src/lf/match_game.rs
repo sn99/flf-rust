@@ -26,6 +26,7 @@ pub struct Match {
     pub weapons: Vec<Weapon>,
     pub specials: Vec<SpecialAttack>,
     pub effects: Vec<crate::lf::effect::EffectObj>,
+    pub effects_pool: crate::lf::effects_pool::EffectsPool,
     pub background: Background,
     pub next_uid: u32,
     pub time: u32,
@@ -108,11 +109,20 @@ impl Match {
         let ai_brains = characters.iter().map(|c| {
                 if c.base.ai { crate::lf::ai::AiBrain::default() } else { crate::lf::ai::AiBrain::default() }
             }).collect();
+        let mut effects_pool = crate::lf::effects_pool::EffectsPool::new(64);
+        // prefer blood 301 then 300 as pool template
+        for tid in [301i32, 300, 302] {
+            if let Some(d) = package.objects.get(&tid).cloned() {
+                effects_pool.set_template(d);
+                break;
+            }
+        }
         Ok(Self {
             characters,
             weapons,
             specials: vec![],
             effects: vec![],
+            effects_pool,
             background,
             next_uid,
             time: 0,
@@ -282,11 +292,15 @@ impl Match {
             e.base.physics_tu(bg_z, bg_w);
         }
         self.effects.retain(|e| !e.base.removed && !e.base.dead);
+        self.effects_pool.tu(bg_z, bg_w);
 
+        self.super_punch_scope();
         self.process_hits();
         self.process_catches();
         self.process_throws();
         self.special_hits();
+        self.drink_weapons();
+        self.whirlwind_itr();
         self.weapon_hits();
         self.char_hits_specials();
         self.spawn_opoints();
@@ -452,15 +466,191 @@ impl Match {
             if eff > 0 {
                 try_ids.insert(0, crate::lf::effect::effect_id_from_num(eff));
             }
-            for try_id in try_ids {
-                if let Some(data) = self.package_objects.get(&try_id).cloned() {
-                    let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
-                    self.next_uid += 1;
-                    self.effects.push(eo);
-                    break;
+            // prefer pooled blood/blast when template matches; else allocate into effects vec
+            let mut spawned = false;
+            if try_ids.first().copied() == Some(301) || try_ids.first().copied() == Some(300) {
+                spawned = self.effects_pool.create(bx, by, bz, 0);
+            }
+            if !spawned {
+                for try_id in try_ids {
+                    if let Some(data) = self.package_objects.get(&try_id).cloned() {
+                        let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
+                        self.next_uid += 1;
+                        self.effects.push(eo);
+                        break;
+                    }
                 }
             }
             let _ = eid;
+        }
+    }
+
+    /// Super punch scope: if stand/walk att would hit a victim whose attack frames expose itr kind 6
+    fn super_punch_scope(&mut self) {
+        let n = self.characters.len();
+        for i in 0..n {
+            if self.characters[i].base.removed {
+                continue;
+            }
+            if !matches!(self.characters[i].base.state(), 0 | 1) {
+                continue;
+            }
+            // probe frames 72 and 73 itr volumes (LF character.js)
+            let mut scope_hit = false;
+            for probe in [72i32, 73] {
+                let Some(frame) = self.characters[i].base.data.frames.get(&probe).cloned() else {
+                    continue;
+                };
+                let itrs = Mech::itr_volumes(
+                    &self.characters[i].base.ps,
+                    self.characters[i].base.facing,
+                    &frame,
+                );
+                for j in 0..n {
+                    if i == j || self.characters[j].base.removed {
+                        continue;
+                    }
+                    if self.characters[i].base.team == self.characters[j].base.team
+                        && self.characters[i].base.team != 0
+                    {
+                        continue;
+                    }
+                    // victim currently has itr kind 6 on active frame (dance of pain / special hurtbox)
+                    let Some(vframe) = self.characters[j].base.frame_data().cloned() else {
+                        continue;
+                    };
+                    let has_k6 = vframe.itr.iter().any(|it| it.kind == 6);
+                    if !has_k6 {
+                        continue;
+                    }
+                    let bdys = Mech::body_volumes(
+                        &self.characters[j].base.ps,
+                        self.characters[j].base.facing,
+                        &vframe,
+                    );
+                    for (vol, _) in &itrs {
+                        for b in &bdys {
+                            if vol.intersects(b) {
+                                scope_hit = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            self.characters[i].want_super_punch = scope_hit;
+        }
+    }
+
+    /// itr kind 16 whirlwind — pull victims slightly toward attacker special/character
+    fn whirlwind_itr(&mut self) {
+        let n = self.characters.len();
+        let mut pulls: Vec<(usize, f64, f64)> = vec![];
+        for i in 0..n {
+            if self.characters[i].base.removed {
+                continue;
+            }
+            let Some(frame) = self.characters[i].base.frame_data().cloned() else {
+                continue;
+            };
+            let itrs = Mech::itr_volumes(
+                &self.characters[i].base.ps,
+                self.characters[i].base.facing,
+                &frame,
+            );
+            for j in 0..n {
+                if i == j || self.characters[j].base.removed {
+                    continue;
+                }
+                let Some(vframe) = self.characters[j].base.frame_data().cloned() else {
+                    continue;
+                };
+                let bdys = Mech::body_volumes(
+                    &self.characters[j].base.ps,
+                    self.characters[j].base.facing,
+                    &vframe,
+                );
+                for (vol, itr) in &itrs {
+                    if itr.kind != 16 {
+                        continue;
+                    }
+                    for b in &bdys {
+                        if vol.intersects(b) {
+                            let ax = self.characters[i].base.ps.x;
+                            let az = self.characters[i].base.ps.z;
+                            let dx = (ax - self.characters[j].base.ps.x).signum() * 2.5;
+                            let dz = (az - self.characters[j].base.ps.z).signum() * 1.2;
+                            pulls.push((j, dx, dz));
+                        }
+                    }
+                }
+            }
+        }
+        // specials whirlwind
+        for sp in &self.specials {
+            if sp.base.removed {
+                continue;
+            }
+            let Some(frame) = sp.base.frame_data().cloned() else {
+                continue;
+            };
+            let itrs = Mech::itr_volumes(&sp.base.ps, sp.base.facing, &frame);
+            for j in 0..n {
+                if self.characters[j].base.removed {
+                    continue;
+                }
+                let Some(vframe) = self.characters[j].base.frame_data().cloned() else {
+                    continue;
+                };
+                let bdys = Mech::body_volumes(
+                    &self.characters[j].base.ps,
+                    self.characters[j].base.facing,
+                    &vframe,
+                );
+                for (vol, itr) in &itrs {
+                    if itr.kind != 16 {
+                        continue;
+                    }
+                    for b in &bdys {
+                        if vol.intersects(b) {
+                            let dx = (sp.base.ps.x - self.characters[j].base.ps.x).signum() * 3.0;
+                            let dz = (sp.base.ps.z - self.characters[j].base.ps.z).signum() * 1.5;
+                            pulls.push((j, dx, dz));
+                        }
+                    }
+                }
+            }
+        }
+        for (j, dx, dz) in pulls {
+            self.characters[j].base.ps.x += dx;
+            self.characters[j].base.ps.z += dz;
+            self.characters[j].base.ps.vx *= 0.85;
+        }
+    }
+
+    /// Drink weapon (type drink): periodic heal while held on sip frames
+    fn drink_weapons(&mut self) {
+        let mut heals: Vec<(usize, f64)> = vec![];
+        for (ci, ch) in self.characters.iter().enumerate() {
+            if ch.base.hold_type != "drink" {
+                continue;
+            }
+            let Some(wid) = ch.hold_weapon else {
+                continue;
+            };
+            // sip animation frames often 55-58 or weaponact on light drink
+            if matches!(ch.base.frame.n, 55 | 56 | 57 | 58 | 110) || ch.base.state() == 7 {
+                heals.push((ci, 3.0));
+            }
+            let _ = wid;
+        }
+        for (ci, amt) in heals {
+            let ch = &mut self.characters[ci];
+            ch.drink_sips += 1;
+            if ch.drink_sips % 4 == 0 {
+                ch.base.hp = (ch.base.hp + amt).min(ch.base.hp_full);
+                ch.base.mp = (ch.base.mp + amt * 0.5).min(ch.base.mp_full);
+            }
         }
     }
 
@@ -1044,6 +1234,19 @@ impl Match {
             }
         }
         for e in &self.effects {
+            if let Some(fd) = e.base.frame_data() {
+                items.push((
+                    e.base.ps.z,
+                    e.base.uid as i32,
+                    SpriteDraw {
+                        sp: e.base.sp.clone(),
+                        cx: fd.centerx,
+                        cy: fd.centery,
+                    },
+                ));
+            }
+        }
+        for e in self.effects_pool.drain_live_refs() {
             if let Some(fd) = e.base.frame_data() {
                 items.push((
                     e.base.ps.z,

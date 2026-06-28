@@ -90,6 +90,22 @@ impl Controller {
         false
     }
 
+    /// Rebind action to a new key (keeps tracking entry in `keys`)
+    pub fn rebind(&mut self, action: &str, new_key: &str) {
+        let new_key = new_key.to_lowercase();
+        if let Some(old) = self.config.insert(action.to_string(), new_key.clone()) {
+            // drop old key slot only if unused by other actions
+            let still = self.config.values().any(|k| k == &old);
+            if !still {
+                self.keys.remove(&old);
+            }
+        }
+        self.keys.entry(new_key).or_default();
+        if !self.actions.iter().any(|a| a == action) {
+            self.actions.push(action.to_string());
+        }
+    }
+
     /// Bind global keyboard events into this controller (shared via Rc)
     pub fn bind_global(controllers: Rc<RefCell<Vec<Controller>>>) {
         let win = window();
