@@ -178,6 +178,12 @@ impl Match {
             })
             .collect();
 
+        let weapon_snap: Vec<(u32, f64, f64, bool)> = self
+            .weapons
+            .iter()
+            .map(|w| (w.base.uid, w.base.ps.x, w.base.ps.z, w.held || w.base.removed))
+            .collect();
+
         let ctrls = self.controllers.borrow();
         let time = self.time;
         while self.ai_brains.len() < self.characters.len() {
@@ -191,6 +197,7 @@ impl Match {
                 }
                 let mut ac = Controller::new_keyboard(cfg);
                 let my_team = ch.base.team;
+                let holding = ch.hold_weapon.is_some();
                 let enemies: Vec<(u32, f64, f64, f64, i32)> = enemy_snap
                     .iter()
                     .enumerate()
@@ -203,7 +210,15 @@ impl Match {
                     .map(|(_, e)| *e)
                     .collect();
                 if time % 3 == 0 {
-                    crate::lf::ai::ai_fill(&mut self.ai_brains[i], &ch.base, &enemies, &mut ac, time);
+                    crate::lf::ai::ai_fill(
+                        &mut self.ai_brains[i],
+                        &ch.base,
+                        &enemies,
+                        &weapon_snap,
+                        holding,
+                        &mut ac,
+                        time,
+                    );
                 }
                 ch.tu(Some(&ac), bg_z, bg_w);
             } else if let Some(ci) = ch.base.controller_index {
@@ -279,15 +294,9 @@ impl Match {
             w.tu(bg_z, bg_w);
         }
         for s in &mut self.specials {
-            // projectile velocity from frame
-            if let Some(fd) = s.base.frame_data().cloned() {
-                if fd.dvx != 0.0 && fd.dvx as i32 != global::UNSPECIFIED {
-                    s.base.ps.vx = fd.dvx * s.base.facing as f64;
-                }
-            }
-            s.base.physics_tu(bg_z, bg_w);
+            s.tu(bg_z, bg_w);
         }
-        self.specials.retain(|s| !s.base.removed);
+        self.specials.retain(|s| !s.base.removed && s.base.frame.n < 1000);
         for e in &mut self.effects {
             e.base.physics_tu(bg_z, bg_w);
         }
@@ -299,8 +308,12 @@ impl Match {
         self.process_catches();
         self.process_throws();
         self.special_hits();
+        self.special_vs_special();
+        self.spawn_special_opoints();
         self.drink_weapons();
         self.whirlwind_itr();
+        self.itr_kind2_pick();
+        self.burn_broken_fx();
         self.weapon_hits();
         self.char_hits_specials();
         self.spawn_opoints();
@@ -419,15 +432,15 @@ impl Match {
             if (ikind == 3 || ikind == 5) && eff2 <= 0 {
                 eff2 = 2;
             }
-            // kind 15 whirlwind_force — pull only, light damage
+            // kind 15 whirlwind_force
             if ikind == 15 {
-                let ax = att_x;
                 let az = self.characters[i].base.ps.z;
-                let dx = (ax - self.characters[j].base.ps.x).signum() * 4.0;
-                let dz = (az - self.characters[j].base.ps.z).signum() * 2.0;
-                self.characters[j].base.ps.x += dx;
-                self.characters[j].base.ps.z += dz;
+                self.characters[j].base.whirlwind_force(att_x, az);
                 inj2 = inj2.max(5.0);
+            }
+            // kind 10/11 flute
+            if ikind == 10 || ikind == 11 {
+                self.characters[j].base.flute_force();
             }
 
             let (drop_w, snd_eff) = self.characters[j].base.injure(
@@ -1128,6 +1141,271 @@ impl Match {
                     s.base.trans_frame(action, 0);
                 }
                 self.specials.push(s);
+            } else if let Some(data) = self.package_objects.get(&oid).cloned() {
+                // weapon/effect fallback — treat as effect
+                let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                self.next_uid += 1;
+                self.effects.push(eo);
+                let _ = (team, facing, action);
+            }
+        }
+    }
+
+    /// Opoints on special frames (balls spawning sub-effects)
+    fn spawn_special_opoints(&mut self) {
+        let mut spawns = vec![];
+        for (si, sp) in self.specials.iter().enumerate() {
+            if sp.base.removed || sp.opoint_done {
+                continue;
+            }
+            let Some(fd) = sp.base.frame_data() else {
+                continue;
+            };
+            let Some(op) = &fd.opoint else {
+                continue;
+            };
+            if op.oid == 0 {
+                continue;
+            }
+            if sp.base.frame.wait_left != fd.wait {
+                continue;
+            }
+            let x = sp.base.ps.x + (op.x - fd.centerx) * sp.base.facing as f64;
+            let y = sp.base.ps.y + (op.y - fd.centery);
+            spawns.push((
+                si,
+                op.oid,
+                sp.base.team,
+                x,
+                y,
+                sp.base.ps.z,
+                sp.base.facing,
+                op.action,
+                op.dvx,
+                op.dvy,
+            ));
+        }
+        for (si, oid, team, x, y, z, facing, action, dvx, dvy) in spawns {
+            if si < self.specials.len() {
+                self.specials[si].opoint_done = true;
+            }
+            if let Some(data) = self.package_objects.get(&oid).cloned() {
+                let ty = data.obj_type.clone();
+                if ty == "specialattack" || ty.is_empty() || data.id >= 200 && data.id < 300 {
+                    let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing)
+                        .with_velocity(dvx, dvy);
+                    self.next_uid += 1;
+                    if action != 0 {
+                        s.base.trans_frame(action, 0);
+                    }
+                    self.specials.push(s);
+                } else {
+                    let mut eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                    self.next_uid += 1;
+                    if action != 0 {
+                        eo.base.trans_frame(action, 0);
+                    }
+                    self.effects.push(eo);
+                }
+            }
+        }
+    }
+
+    /// Ball vs ball: ice/fire clash from specialattack.js
+    fn special_vs_special(&mut self) {
+        let n = self.specials.len();
+        let mut die: Vec<usize> = vec![];
+        let mut shards: Vec<(f64, f64, f64)> = vec![];
+        for a in 0..n {
+            if self.specials[a].base.removed {
+                continue;
+            }
+            let Some(fa) = self.specials[a].base.frame_data().cloned() else {
+                continue;
+            };
+            let itrs_a = Mech::itr_volumes(
+                &self.specials[a].base.ps,
+                self.specials[a].base.facing,
+                &fa,
+            );
+            for b in (a + 1)..n {
+                if self.specials[b].base.removed {
+                    continue;
+                }
+                // same team head-on only cancel if opposing dirs
+                let same_team = self.specials[a].base.team == self.specials[b].base.team
+                    && self.specials[a].base.team != 0;
+                if same_team && self.specials[a].base.facing == self.specials[b].base.facing {
+                    continue;
+                }
+                let Some(fb) = self.specials[b].base.frame_data().cloned() else {
+                    continue;
+                };
+                let bdys_b = Mech::body_volumes(
+                    &self.specials[b].base.ps,
+                    self.specials[b].base.facing,
+                    &fb,
+                );
+                // also itr vs itr / body
+                let itrs_b = Mech::itr_volumes(
+                    &self.specials[b].base.ps,
+                    self.specials[b].base.facing,
+                    &fb,
+                );
+                let mut hit = false;
+                for (va, _) in &itrs_a {
+                    for (vb, _) in &itrs_b {
+                        if va.intersects(vb) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    for bb in &bdys_b {
+                        if va.intersects(bb) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+                if !hit {
+                    continue;
+                }
+                let a_ice = self.specials[a].is_ice_ball();
+                let b_ice = self.specials[b].is_ice_ball();
+                let a_fire = self.specials[a].is_fire_ball();
+                let b_fire = self.specials[b].is_fire_ball();
+                // non-ice hit by ice → destroy non-ice, spawn 209
+                if a_ice && !b_ice {
+                    die.push(b);
+                    shards.push((
+                        self.specials[b].base.ps.x,
+                        self.specials[b].base.ps.y,
+                        self.specials[b].base.ps.z,
+                    ));
+                } else if b_ice && !a_ice {
+                    die.push(a);
+                    shards.push((
+                        self.specials[a].base.ps.x,
+                        self.specials[a].base.ps.y,
+                        self.specials[a].base.ps.z,
+                    ));
+                } else if a_fire && b_fire || a_ice && b_ice || (!a_ice && !b_ice) {
+                    // mutual destroy
+                    die.push(a);
+                    die.push(b);
+                } else {
+                    die.push(a);
+                    die.push(b);
+                }
+            }
+        }
+        die.sort_unstable();
+        die.dedup();
+        for si in die.into_iter().rev() {
+            if si < self.specials.len() {
+                self.specials[si].mark_die(1000);
+            }
+        }
+        for (x, y, z) in shards {
+            // ice shatter effect 209 if present else 302
+            for oid in [209i32, 302, 300] {
+                if let Some(data) = self.package_objects.get(&oid).cloned() {
+                    let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y - 20.0, z);
+                    self.next_uid += 1;
+                    self.effects.push(eo);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// itr kind 2 on character frames — pick light weapons in volume
+    fn itr_kind2_pick(&mut self) {
+        let n = self.characters.len();
+        let mut picks: Vec<(usize, usize)> = vec![];
+        for i in 0..n {
+            if self.characters[i].base.removed || self.characters[i].hold_weapon.is_some() {
+                continue;
+            }
+            if self.characters[i].base.arest > 0 {
+                continue;
+            }
+            let Some(frame) = self.characters[i].base.frame_data().cloned() else {
+                continue;
+            };
+            let has_k2 = frame.itr.iter().any(|it| it.kind == 2 || it.kind == 7);
+            if !has_k2 {
+                continue;
+            }
+            let itrs = Mech::itr_volumes(
+                &self.characters[i].base.ps,
+                self.characters[i].base.facing,
+                &frame,
+            );
+            for (wi, w) in self.weapons.iter().enumerate() {
+                if w.held || w.base.removed {
+                    continue;
+                }
+                // kind 7 cannot pick heavy
+                let only_light = frame.itr.iter().any(|it| it.kind == 7);
+                if only_light && w.heavy {
+                    continue;
+                }
+                let Some(wf) = w.base.frame_data().cloned() else {
+                    continue;
+                };
+                let bdys = Mech::body_volumes(&w.base.ps, w.base.facing, &wf);
+                for (vol, itr) in &itrs {
+                    if itr.kind != 2 && itr.kind != 7 {
+                        continue;
+                    }
+                    if itr.kind == 7 && w.heavy {
+                        continue;
+                    }
+                    for b in &bdys {
+                        if vol.intersects(b) {
+                            picks.push((i, wi));
+                        }
+                    }
+                }
+            }
+        }
+        for (ci, wi) in picks {
+            if self.characters[ci].hold_weapon.is_some() || self.weapons[wi].held {
+                continue;
+            }
+            let uid = self.weapons[wi].base.uid;
+            let wtype = self.weapons[wi].base.obj_type.clone();
+            self.weapons[wi].held = true;
+            self.weapons[wi].holder_uid = Some(self.characters[ci].base.uid);
+            self.weapons[wi].base.team = self.characters[ci].base.team;
+            self.characters[ci].hold_weapon = Some(uid);
+            self.characters[ci].base.holding_uid = Some(uid);
+            self.characters[ci].base.hold_type = wtype;
+            self.characters[ci].base.itr_arest_update(3);
+        }
+    }
+
+    /// Burning state 18 — broken effect sparks (character.js brokeneffect 302)
+    fn burn_broken_fx(&mut self) {
+        let mut sparks = vec![];
+        for ch in &self.characters {
+            if ch.base.removed {
+                continue;
+            }
+            let st = ch.base.state();
+            if st == 18 && ch.base.frame.wait_left == ch.base.frame_data().map(|f| f.wait).unwrap_or(0) {
+                sparks.push((ch.base.ps.x, ch.base.ps.y - 30.0, ch.base.ps.z));
+            }
+        }
+        for (x, y, z) in sparks {
+            if self.effects_pool.create(x, y, z, 0) {
+                continue;
+            }
+            if let Some(data) = self.package_objects.get(&302).cloned() {
+                let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                self.next_uid += 1;
+                self.effects.push(eo);
             }
         }
     }

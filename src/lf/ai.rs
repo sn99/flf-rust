@@ -1,4 +1,4 @@
-//! AI — chase / defend / special / fall-recover patterns from LF/AI.js
+//! AI — chase / defend / special / weapon / fall-recover (LF/AI.js patterns)
 use crate::core_engine::controller::Controller;
 use crate::lf::livingobject::LivingObject;
 
@@ -7,6 +7,7 @@ pub struct AiBrain {
     pub target_uid: Option<u32>,
     pub run_phase: u8,
     pub special_phase: u8,
+    pub weapon_uid: Option<u32>,
 }
 
 impl Default for AiBrain {
@@ -16,15 +17,19 @@ impl Default for AiBrain {
             target_uid: None,
             run_phase: 0,
             special_phase: 0,
+            weapon_uid: None,
         }
     }
 }
 
 /// Fill controller for one TU of AI
+/// weapons: (uid, x, z, held)
 pub fn ai_fill(
     brain: &mut AiBrain,
     self_obj: &LivingObject,
-    enemies: &[(u32, f64, f64, f64, i32)], // uid, x, z, y, state
+    enemies: &[(u32, f64, f64, f64, i32)],
+    weapons: &[(u32, f64, f64, bool)],
+    holding_weapon: bool,
     ctrl: &mut Controller,
     time: u32,
 ) {
@@ -33,18 +38,51 @@ pub fn ai_fill(
 
     let st = self_obj.state();
 
-    // while falling — try recover jump on frames approximated by state 12
     if st == 12 && self_obj.fall < 60.0 && self_obj.hp > 0.0 && brain.cc % 7 == 0 {
         ctrl.keypress("jump");
         return;
     }
-
-    // frozen / caught / lying — no actions
     if matches!(st, 10 | 13 | 14) {
         return;
     }
 
-    // acquire target every 100 TU
+    // seek weapon if unarmed and one is near
+    if !holding_weapon {
+        let mut best = None;
+        let mut best_d = 120.0_f64;
+        for (uid, x, z, held) in weapons {
+            if *held {
+                continue;
+            }
+            let d = (x - self_obj.ps.x).hypot(z - self_obj.ps.z);
+            if d < best_d {
+                best_d = d;
+                best = Some((*uid, *x, *z));
+            }
+        }
+        if let Some((uid, wx, wz)) = best {
+            brain.weapon_uid = Some(uid);
+            let dx = wx - self_obj.ps.x;
+            let dz = wz - self_obj.ps.z;
+            if dx.abs() > 8.0 {
+                ctrl.keypress(if dx > 0.0 { "right" } else { "left" });
+            }
+            if dz.abs() > 6.0 {
+                ctrl.keypress(if dz > 0.0 { "down" } else { "up" });
+            }
+            if dx.abs() < 40.0 && dz.abs() < 14.0 {
+                ctrl.keypress("att");
+            }
+            // still engage enemies if very close
+            if best_d > 50.0 {
+                return;
+            }
+        }
+    } else if brain.cc % 90 == 0 && self_obj.mp < 100.0 {
+        // throw weapon occasionally when low mp
+        ctrl.keypress("att");
+    }
+
     if brain.cc % 100 == 1 || brain.target_uid.is_none() {
         let mut best = None;
         let mut best_d = f64::MAX;
@@ -73,18 +111,15 @@ pub fn ai_fill(
     let dz = tz - self_obj.ps.z;
     let dy = ty - self_obj.ps.y;
 
-    // defend when close and enemy attacking (state 3) or airborne threat
     if dx.abs() < 90.0 && dz.abs() < 22.0 && (*tstate == 3 || *tstate == 5) && time % 18 < 7 {
         ctrl.keypress("def");
         return;
     }
 
-    // approach / run when far
     if dx.abs() > 50.0 {
         let dir = if dx > 0.0 { "right" } else { "left" };
         ctrl.keypress(dir);
         if dx.abs() > 140.0 {
-            // simulate double-tap run: pulse key
             brain.run_phase = brain.run_phase.wrapping_add(1);
             if brain.run_phase % 3 == 0 {
                 ctrl.keypress(dir);
@@ -99,11 +134,9 @@ pub fn ai_fill(
         }
     }
 
-    // attack when in range
     if dx.abs() < 70.0 && dz.abs() < 18.0 {
         if *tstate != 14 {
             if dy < -20.0 {
-                // enemy airborne — jump attack setup
                 ctrl.keypress("jump");
                 if brain.cc % 4 == 0 {
                     ctrl.keypress("att");
@@ -116,7 +149,6 @@ pub fn ai_fill(
         ctrl.keypress("jump");
     }
 
-    // special sequences: def + direction + att/jump
     if self_obj.mp > 180.0 && dx.abs() < 160.0 {
         brain.special_phase = brain.special_phase.wrapping_add(1);
         match brain.special_phase % 120 {
@@ -139,6 +171,5 @@ pub fn ai_fill(
         }
     }
 
-    // pick up weapon impulse when idle and far — att near weapons handled by match
     let _ = st;
 }

@@ -442,6 +442,24 @@ impl LivingObject {
         }
     }
 
+    /// LF livingobject.whirlwind_force — pull toward rect center-ish (attacker x/z)
+    pub fn whirlwind_force(&mut self, ax: f64, az: f64) {
+        let dx = ax - self.ps.x;
+        let dz = az - self.ps.z;
+        self.ps.x += dx.signum() * 3.5;
+        self.ps.z += dz.signum() * 1.8;
+        self.ps.vx *= 0.8;
+        self.ps.vz *= 0.8;
+    }
+
+    /// LF livingobject.flute_force — oscillate / lift slightly
+    pub fn flute_force(&mut self) {
+        self.ps.vy -= 0.8;
+        self.ps.vx += if self.facing > 0 { 0.5 } else { -0.5 };
+        self.effect.blink = true;
+        self.effect.timeout = self.effect.timeout.max(6);
+    }
+
     pub fn recover_tu(&mut self) {
         if self.fall > 0.0 {
             self.fall += global::RECOVER_FALL;
