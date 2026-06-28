@@ -786,11 +786,8 @@ impl Manager {
                             }
                         } else if key == "F7" {
                             if let Some(m) = g.match_game.as_mut() {
-                                for ch in &mut m.characters {
-                                    ch.base.hp = ch.base.hp_full;
-                                    ch.base.dead = false;
-                                    ch.base.removed = false;
-                                }
+                                m.F7_refill();
+                                m.overlay_message("F7 HP/MP refill");
                             }
                         }
                     }

@@ -59,6 +59,10 @@ pub struct Match {
     pub winner_team: Option<i32>,
     pub asset_root: String,
     pub tasks: Vec<MatchTask>,
+    pub rng_state: u64,
+    pub overlay_msg: String,
+    pub overlay_ttl: i32,
+    pub panel_remap: std::collections::HashMap<u32, u32>,
 }
 
 impl Match {
@@ -172,6 +176,10 @@ impl Match {
             winner_team: None,
             asset_root: package.root.clone(),
             tasks: vec![],
+            rng_state: 0xC0FFEE_u64,
+            overlay_msg: String::new(),
+            overlay_ttl: 0,
+            panel_remap: std::collections::HashMap::new(),
         })
     }
 
@@ -1172,6 +1180,14 @@ impl Match {
         }
     }
 
+    /// F.LF create_transform_character — queue data swap (process_transforms applies)
+    pub fn create_transform_character(&mut self, idx: usize, new_id: i32) {
+        if idx < self.characters.len() {
+            self.characters[idx].transform_target_id = new_id;
+            self.characters[idx].pending_transform = true;
+        }
+    }
+
     /// Swap character data to transform target id (Rudolf) or back to 5.
     fn process_transforms(&mut self) {
         let mut jobs: Vec<(usize, i32, bool)> = vec![]; // idx, new_id, is_revert
@@ -1822,6 +1838,70 @@ impl Match {
         self.characters.iter().filter(|c| !c.base.removed && c.base.hp > 0.0).map(|c| c.base.uid).collect()
     }
 
+
+    /// F.LF create_multiple_objects — fan vz
+    pub fn create_multiple_objects(&mut self, oid: i32, team: i32, x: f64, y: f64, z: f64, facing: i32, action: i32, number: i32, vz_step: f64) {
+        let n = number.max(1) as i32;
+        for i in 0..n {
+            let vz = (i as f64 - (n as f64 - 1.0) / 2.0) * vz_step;
+            self.tasks.push(MatchTask::CreateObject {
+                oid, team, x, y, z: z + vz * 0.01, facing, action, dvx: 0.0, dvy: 0.0,
+            });
+        }
+    }
+
+    pub fn create_weapon(&mut self, id: i32, x: f64, z: f64) {
+        self.create_object(id, 0, x, 0.0, z, 1, 0, 0.0, 0.0);
+    }
+
+    pub fn destroy_weapons(&mut self) {
+        for w in &mut self.weapons {
+            w.die();
+        }
+    }
+
+    pub fn drop_weapons_setup(&mut self, positions: &[(f64, f64)]) {
+        let ids = [100i32, 101, 150, 151];
+        for (i, &(x, z)) in positions.iter().enumerate() {
+            let id = ids[i % ids.len()];
+            self.create_weapon(id, x, z);
+        }
+    }
+
+    /// Deterministic RNG like match.random / new_randomseed
+    pub fn new_randomseed(&mut self, seed: u64) {
+        self.rng_state = seed;
+    }
+    pub fn random_f(&mut self) -> f64 {
+        // xorshift
+        let mut x = self.rng_state;
+        if x == 0 { x = 0x1234_5678_9ABC_DEF0; }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng_state = x;
+        (x as f64) / (u64::MAX as f64)
+    }
+
+    pub fn overlay_message(&mut self, mess: &str) {
+        self.overlay_msg = mess.to_string();
+        self.overlay_ttl = 90;
+    }
+
+    pub fn transform_panel(&mut self, from_uid: u32, to_uid: Option<u32>) {
+        // UI panels use character names — mark for render
+        self.panel_remap.insert(from_uid, to_uid.unwrap_or(from_uid));
+    }
+
+    pub fn F7_refill(&mut self) {
+        for ch in &mut self.characters {
+            ch.base.hp = ch.base.hp_full;
+            ch.base.mp = ch.base.mp_full;
+            ch.base.dead = false;
+            ch.base.removed = false;
+        }
+    }
+
     fn update_camera(&mut self) {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
@@ -1954,6 +2034,10 @@ impl Match {
         }
 
         self.draw_panels(ren);
+        if self.overlay_ttl > 0 {
+            ren.fill_text(&self.overlay_msg, 280.0, 120.0, "#fff", "bold 20px sans-serif");
+            self.overlay_ttl -= 1;
+        }
 
         if self.paused {
             ren.fill_rect_color(0.0, 180.0, ren.width, 40.0, "rgba(0,0,0,0.5)");

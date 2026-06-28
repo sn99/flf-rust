@@ -35,6 +35,7 @@ pub struct Character {
     pub drink_sips: i32,
     /// held weapon object id (for properties.js keys)
     pub hold_weapon_oid: i32,
+    pub last_state: i32,
 }
 
 impl Character {
@@ -67,6 +68,7 @@ impl Character {
             want_super_punch: false,
             drink_sips: 0,
             hold_weapon_oid: 0,
+            last_state: 0,
         }
     }
 
@@ -111,6 +113,29 @@ impl Character {
         self.combo.tick();
         let state = self.base.state();
         self.base.allow_switch_dir = matches!(state, 0 | 1 | 4 | 7); // 2 run 5 dash lock facing (F.LF states_switch_dir)
+
+        // F.LF state_entry / state_exit
+        if state != self.last_state {
+            // exit previous
+            match self.last_state {
+                9 => { /* catch exit clears holding handled in match */ }
+                13 => { self.base.request_broken(212, 8); }
+                14 => {
+                    self.base.effect.blink = true;
+                    self.base.effect.super_armor = true;
+                    self.base.effect.timeout = 30;
+                }
+                _ => {}
+            }
+            match state {
+                9 => { self.catch_counter = 43; self.catch_attacks = 0; }
+                11 => { self.base.trans.inc_wait(0, 20, 1); }
+                14 => { self.base.fall = 0.0; self.base.bdefend = 0.0; }
+                1700 => { self.base.effect.timeout = 30; self.base.effect.super_armor = true; }
+                _ => {}
+            }
+            self.last_state = state;
+        }
 
         // state entry hooks
         match state {

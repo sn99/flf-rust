@@ -153,7 +153,44 @@ impl LivingObject {
         self.frame_data().map(|f| f.state).unwrap_or(0)
     }
 
-    pub fn dirh(&self) -> i32 { self.facing }
+    pub fn dirh(&self) -> i32 {
+        self.facing
+    }
+    pub fn set_pos(&mut self, x: f64, y: f64, z: f64) {
+        self.ps.x = x;
+        self.ps.y = y;
+        self.ps.z = z;
+    }
+    pub fn destroy(&mut self) {
+        self.removed = true;
+        self.dead = true;
+        self.sp.visible = false;
+    }
+    pub fn effect_id(num: i32) -> i32 {
+        if num <= 0 {
+            301
+        } else {
+            300 + num
+        }
+    }
+    pub fn frame_ani_sequence(&mut self, a: i32, b: i32) {
+        let cur = self.frame.n;
+        if cur < a || cur > b {
+            self.trans.set_next(a + 1, 5);
+        } else if cur < b {
+            self.trans.set_next(cur + 1, 5);
+        } else {
+            self.trans.set_next(a, 5);
+        }
+    }
+    pub fn vol_itr_has_kind(&self, kind: i32) -> bool {
+        self.frame_data()
+            .map(|f| f.itr.iter().any(|i| i.kind == kind))
+            .unwrap_or(false)
+    }
+    pub fn itr_arest_test(&self) -> bool {
+        self.arest <= 0
+    }
 
     /// Transition to frame with lock priority (F.LF trans.frame)
     pub fn trans_frame(&mut self, mut frame: i32, lock: i32) -> bool {
