@@ -1800,6 +1800,9 @@ impl Match {
         if self.game_over {
             ren.fill_rect_color(200.0, 150.0, 400.0, 100.0, "rgba(0,0,0,0.75)");
             ren.fill_text("GAME OVER", 300.0, 195.0, "#ff0", "bold 32px sans-serif");
+            if let Some(wt) = self.winner_team {
+                ren.fill_text(&format!("Winner team {}", wt), 320.0, 175.0, "#0f0", "16px sans-serif");
+            }
             let mut ky = 220.0;
             for ch in &self.characters {
                 if ch.base.kills > 0 || !ch.base.removed {
