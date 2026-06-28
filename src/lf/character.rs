@@ -33,6 +33,8 @@ pub struct Character {
     pub want_super_punch: bool,
     /// drink weapon sip TU counter
     pub drink_sips: i32,
+    /// held weapon object id (for properties.js keys)
+    pub hold_weapon_oid: i32,
 }
 
 impl Character {
@@ -64,7 +66,22 @@ impl Character {
             catch_injury_pending: false,
             want_super_punch: false,
             drink_sips: 0,
+            hold_weapon_oid: 0,
         }
+    }
+
+    /// properties.js entry for held weapon id
+    pub fn weapon_proper_bool(&self, prop: &str) -> bool {
+        if self.hold_weapon_oid == 0 {
+            return false;
+        }
+        let id = self.hold_weapon_oid.to_string();
+        self.base
+            .properties
+            .get(&id)
+            .and_then(|o| o.get(prop))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     pub fn switch_dir(&mut self, dir: &str) {
@@ -201,7 +218,15 @@ impl Character {
                 self.state12_fall_tu();
             }
             13 => {
-                // frozen — no input; broken effect on exit flagged in id_tu
+                // frozen — no input; ice shatter on exit
+                let leaving = self
+                    .base
+                    .frame_data()
+                    .and_then(|fd| self.base.data.frames.get(&fd.next).map(|f| f.state))
+                    .unwrap_or(13);
+                if leaving != 13 && self.base.trans.wait <= 1 {
+                    self.base.request_broken(212, 8);
+                }
             }
             14 => {
                 // lying entry: clear fall meters
@@ -465,12 +490,28 @@ impl Character {
                         return;
                     }
                     if holding_light {
-                        if left != right {
+                        // properties.js on weapon id: stand_throw / just_throw / attackable
+                        if self.weapon_proper_bool("just_throw") {
                             self.base.trans_frame(45, 10);
-                        } else {
-                            let fr = if js_sys::Math::random() < 0.5 { 20 } else { 25 };
-                            self.base.trans_frame(fr, 10);
+                            return;
                         }
+                        let dx = left != right;
+                        if dx && self.weapon_proper_bool("stand_throw") {
+                            self.base.trans_frame(45, 10);
+                            return;
+                        }
+                        if self.weapon_proper_bool("attackable")
+                            || !self.weapon_proper_bool("stand_throw")
+                        {
+                            if left != right {
+                                self.base.trans_frame(45, 10);
+                            } else {
+                                let fr = if js_sys::Math::random() < 0.5 { 20 } else { 25 };
+                                self.base.trans_frame(fr, 10);
+                            }
+                            return;
+                        }
+                        self.base.trans_frame(45, 10);
                         return;
                     }
                     // super punch: F.LF checks frames 72/73 itr volume for victims with itr kind 6

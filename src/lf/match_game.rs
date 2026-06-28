@@ -320,8 +320,48 @@ impl Match {
         self.char_hits_specials();
         self.spawn_opoints();
         self.pick_weapons();
+        self.flush_broken_effects();
         self.update_camera();
         self.check_game_over();
+    }
+
+    /// Drain LO.pending_broken_* into 320 debris (brokeneffect_create)
+    fn flush_broken_effects(&mut self) {
+        let mut jobs: Vec<(f64, f64, f64, i32, i32)> = vec![];
+        for ch in &mut self.characters {
+            if ch.base.pending_broken_num > 0 {
+                jobs.push((
+                    ch.base.ps.x,
+                    ch.base.ps.y,
+                    ch.base.ps.z,
+                    ch.base.pending_broken_id,
+                    ch.base.pending_broken_num,
+                ));
+                ch.base.pending_broken_id = 0;
+                ch.base.pending_broken_num = 0;
+            }
+        }
+        for (x, y, z, _fid, num) in jobs {
+            let n = num.clamp(1, 12);
+            for i in 0..n {
+                if let Some(data) = self.package_objects.get(&320).cloned() {
+                    let mut eo = crate::lf::effect::EffectObj::new(
+                        self.next_uid,
+                        data,
+                        x + (i as f64 - n as f64 * 0.5) * 6.0,
+                        y - 20.0 + (i % 3) as f64 * 4.0,
+                        z,
+                    );
+                    self.next_uid += 1;
+                    eo.base.ps.vx = (i as f64 - 4.0) * 1.5;
+                    eo.base.ps.vy = -2.0 - (i % 4) as f64;
+                    self.effects.push(eo);
+                } else {
+                    self.spawn_broken(x, y, z);
+                    break;
+                }
+            }
+        }
     }
 
     fn process_hits(&mut self) {
@@ -512,6 +552,7 @@ impl Match {
         let Some(wid) = ch.hold_weapon.take() else {
             return;
         };
+        ch.hold_weapon_oid = 0;
         ch.base.hold_type.clear();
         if ch.base.holding_uid == Some(wid) {
             ch.base.holding_uid = None;
@@ -1419,11 +1460,13 @@ impl Match {
                 continue;
             }
             let uid = self.weapons[wi].base.uid;
+            let woid = self.weapons[wi].base.id;
             let wtype = self.weapons[wi].base.obj_type.clone();
             self.weapons[wi].held = true;
             self.weapons[wi].holder_uid = Some(self.characters[ci].base.uid);
             self.weapons[wi].base.team = self.characters[ci].base.team;
             self.characters[ci].hold_weapon = Some(uid);
+            self.characters[ci].hold_weapon_oid = woid;
             self.characters[ci].base.holding_uid = Some(uid);
             self.characters[ci].base.hold_type = wtype;
             self.characters[ci].base.itr_arest_update(3);
@@ -1511,6 +1554,7 @@ impl Match {
         }
         for (ci, vx, vy, vz) in throws {
             if let Some(wid) = self.characters[ci].hold_weapon.take() {
+                self.characters[ci].hold_weapon_oid = 0;
                 self.characters[ci].base.holding_uid = None;
                 self.characters[ci].base.hold_type.clear();
                 if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
@@ -1542,11 +1586,13 @@ impl Match {
             if self.characters[ci].hold_weapon.is_some() { continue; }
             if self.weapons[wi].held { continue; }
             let uid = self.weapons[wi].base.uid;
+            let woid = self.weapons[wi].base.id;
             let wtype = self.weapons[wi].base.obj_type.clone();
             self.weapons[wi].held = true;
             self.weapons[wi].holder_uid = Some(self.characters[ci].base.uid);
             self.weapons[wi].base.team = self.characters[ci].base.team;
             self.characters[ci].hold_weapon = Some(uid);
+            self.characters[ci].hold_weapon_oid = woid;
             self.characters[ci].base.holding_uid = Some(uid);
             self.characters[ci].base.hold_type = wtype;
         }

@@ -87,6 +87,9 @@ pub struct LivingObject {
     pub frame_sound: String,
     /// per-id properties from package (LF2 properties.js)
     pub properties: Value,
+    /// brokeneffect_create queue (id=320 fragments, effect_frame_id for anim)
+    pub pending_broken_id: i32,
+    pub pending_broken_num: i32,
 }
 
 impl LivingObject {
@@ -133,6 +136,8 @@ impl LivingObject {
             opoint_spawned: false,
             frame_sound: String::new(),
             properties: Value::Null,
+            pending_broken_id: 0,
+            pending_broken_num: 0,
         };
         lo.trans_frame(0, 0);
         lo
@@ -242,6 +247,12 @@ impl LivingObject {
 
     pub fn set_mass(&mut self, mass: f64) {
         self.mech.mass = mass;
+    }
+
+    /// Request N broken fragments (match spawns id 320) — LF brokeneffect_create
+    pub fn request_broken(&mut self, effect_frame_id: i32, num: i32) {
+        self.pending_broken_id = effect_frame_id;
+        self.pending_broken_num = if num > 0 { num } else { 8 };
     }
 
     /// LF livingobject.proper(id?, prop)

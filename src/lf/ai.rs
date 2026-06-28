@@ -78,9 +78,14 @@ pub fn ai_fill(
                 return;
             }
         }
-    } else if brain.cc % 90 == 0 && self_obj.mp < 100.0 {
-        // throw weapon occasionally when low mp
-        ctrl.keypress("att");
+    } else {
+        // holding weapon — LF AI.js weapon_holder: prefer throw or melee
+        if self_obj.hp < self_obj.hp_full * 0.35 && brain.cc % 40 == 0 {
+            // try throw
+            ctrl.keypress("att");
+        } else if brain.cc % 90 == 0 && self_obj.mp < 100.0 {
+            ctrl.keypress("att");
+        }
     }
 
     if brain.cc % 100 == 1 || brain.target_uid.is_none() {
