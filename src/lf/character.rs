@@ -379,7 +379,19 @@ impl Character {
         }
 
         self.id_frame_hook();
+        let was_air = self.base.ps.y < 0.0 || self.base.ps.vy < 0.0;
         self.base.physics_tu(bg_z, bg_w);
+        if was_air && self.base.ps.y >= 0.0 && self.base.ps.vy >= 0.0 {
+            if let Some(nf) = crate::lf::character_states::dispatch(self, "fell_onto_ground", None) {
+                if nf > 0 && nf != crate::lf::character_states::COMBO_CONSUMED {
+                    self.base.trans_frame(nf, 15);
+                }
+            } else if let Some(nf) = crate::lf::character_states::dispatch(self, "fall_onto_ground", None) {
+                if nf > 0 && nf != crate::lf::character_states::COMBO_CONSUMED {
+                    self.base.trans_frame(nf, 15);
+                }
+            }
+        }
 
         // apply caught throw injury on land
         if self.caught_throwinjury > 0.0 && self.base.ps.y >= 0.0 && self.base.state() == 12 {

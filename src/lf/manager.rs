@@ -780,6 +780,9 @@ impl Manager {
                         } else if key == "F1" || k == "p" {
                             if let Some(m) = g.match_game.as_mut() {
                                 m.toggle_pause();
+                                if let Some(el) = util::qs(".pause_message") {
+                                    el.set_inner_html(if m.paused { "PAUSED" } else { "" });
+                                }
                             }
                         } else if key == "F2" {
                             // F.LF F2: pause then single-step one TU
@@ -790,6 +793,9 @@ impl Manager {
                                     m.paused = true;
                                 } else {
                                     m.paused = true;
+                                }
+                                if let Some(el) = util::qs(".pause_message") {
+                                    el.set_inner_html(if m.paused { "PAUSED (F2 step)" } else { "" });
                                 }
                             }
                         } else if key == "F3" {

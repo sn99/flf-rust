@@ -89,21 +89,25 @@ impl Weapon {
         self.base.ps.vx = 0.0;
         self.base.ps.vy = 0.0;
         self.base.ps.vz = 0.0;
-        self.base.team = 0; // will be set by holder team in match
+        // LF held weapon pseudo-states
+        let held_frame = if self.heavy { 2001 } else { 1001 };
+        if self.base.data.frames.contains_key(&held_frame) {
+            self.base.trans_frame(held_frame, 0);
+        }
     }
 
     pub fn drop(&mut self, vx: f64, vy: f64, vz: f64) {
         self.held = false;
         self.holder_uid = None;
-        // keep team so thrown weapon damages opponents (cleared on land in tu)
-        self.base.ps.vx = vx;
-        self.base.ps.vy = vy;
-        self.base.ps.vz = vz;
         if self.light {
             self.base.trans_frame(40, 5);
         } else {
             self.base.trans_frame(1, 5);
         }
+        // keep team so thrown weapon damages opponents (cleared on land in tu)
+        self.base.ps.vx = vx;
+        self.base.ps.vy = vy;
+        self.base.ps.vz = vz;
     }
 
     pub fn die(&mut self) {
