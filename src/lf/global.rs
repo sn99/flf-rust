@@ -80,3 +80,11 @@ pub fn bounce_absorb(dvx: f64) -> f64 {
         dvx.abs(),
     )
 }
+
+pub fn fall_wait180(dvy: f64) -> i32 {
+    let a = dvy.abs();
+    crate::core_engine::math::lookup(
+        &[(7.0, 1.0), (9.0, 2.0), (11.0, 3.0), (13.0, 4.0), (15.0, 5.0), (17.0, 6.0)],
+        a,
+    ) as i32
+}

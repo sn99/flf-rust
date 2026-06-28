@@ -160,7 +160,17 @@ impl Manager {
             let _ = fp.style().set_property("background-color", col);
         }
         crate::core_engine::touch::mount_touch_hint();
-        mgr.show_screen(Screen::FrontPage);
+        let params = crate::core_engine::util::location_parameters();
+        if params.contains_key("demo") {
+            // auto start with COMs
+            mgr.num_computers = 2;
+            for s in &mut mgr.slots {
+                s.joined = true;
+            }
+            mgr.start_match();
+        } else {
+            mgr.show_screen(Screen::FrontPage);
+        }
         Ok(mgr)
     }
 
@@ -455,6 +465,27 @@ impl Manager {
         }
     }
 
+
+    fn save_settings(&self) {
+        let ctrls = self.controllers.borrow();
+        let mut control = vec![];
+        for c in ctrls.iter() {
+            let mut config = serde_json::Map::new();
+            for (k, v) in &c.config {
+                config.insert(k.clone(), serde_json::Value::String(v.clone()));
+            }
+            control.push(serde_json::json!({"type": "keyboard", "config": config}));
+        }
+        let obj = serde_json::json!({
+            "version": 1.00002,
+            "control": control,
+            "player": [{"name":"player1"},{"name":"player2"}],
+            "server": {"Project F Official Lobby": "http://lobby.projectf.hk"},
+            "support_sound": true
+        });
+        crate::core_engine::support::local_storage_set("F.LF/settings", &obj.to_string());
+    }
+
     pub fn run_loop(self) {
         let mgr = Rc::new(RefCell::new(self));
 
@@ -497,7 +528,7 @@ impl Manager {
                             g.show_screen(Screen::Network);
                         }
                         2 => g.show_screen(Screen::Settings),
-                        99 => g.show_screen(Screen::FrontPage),
+                        99 => { g.save_settings(); g.show_screen(Screen::FrontPage); },
                         _ => {}
                     }
                 }
@@ -623,7 +654,13 @@ impl Manager {
                             g.on_vs_action(v);
                         }
                     }
-                    Screen::Settings | Screen::Network => {
+                    Screen::Settings => {
+                        if k == "escape" {
+                            g.save_settings();
+                            g.show_screen(Screen::FrontPage);
+                        }
+                    }
+                    Screen::Network => {
                         if k == "escape" {
                             g.show_screen(Screen::FrontPage);
                         }

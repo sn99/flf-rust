@@ -114,7 +114,16 @@ impl Character {
                 }
             }
             6 => {
-                // rowing — velocity from frames
+                // rowing — push with rowing_distance
+                let rd = self.base.data.bmp.rowing_distance;
+                let rh = self.base.data.bmp.rowing_height;
+                if self.base.statemem_frame_tu {
+                    self.base.statemem_frame_tu = false;
+                    self.base.ps.vx = self.base.facing as f64 * rd;
+                    if rh != 0.0 {
+                        self.base.ps.vy = rh;
+                    }
+                }
             }
             9 => {
                 self.catch_counter -= 1;
@@ -157,7 +166,11 @@ impl Character {
                 // deep specific — data driven
             }
             400 | 401 => {
-                // teleport — snap in id_frame_hook if needed
+                // teleport — match applies targets
+            }
+            501 => {
+                // generic special state — frames drive
+                self.base.allow_switch_dir = false;
             }
             1700 => {
                 // heal state
@@ -196,6 +209,8 @@ impl Character {
             match n {
                 180 if dvy_up => {
                     self.base.trans.set_next(181, 15);
+                    let w = global::fall_wait180(self.base.ps.vy);
+                    self.base.trans.set_wait(w, 15, 1);
                 }
                 180 => {
                     self.base.trans.set_next(185, 15);

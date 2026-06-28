@@ -338,6 +338,10 @@ impl Match {
         for (i, j, injury, fall, dvx, dvy, arest, eff, ikind) in events {
             let facing = self.characters[i].base.facing;
             self.characters[i].base.arest = if arest > 0 { arest } else { global::DEFAULT_AREST };
+            // hit_stop: stall attacker frame wait (F.LF default 3)
+            let hs = global::DEFAULT_HIT_STOP;
+            self.characters[i].base.trans.inc_wait(hs, 20, 1);
+            self.characters[i].base.trans.wait = self.characters[i].base.trans.wait.max(hs);
             let vid = self.characters[j].base.uid;
             self.characters[i]
                 .base
@@ -753,6 +757,7 @@ impl Match {
                 if let Some((x, y, z, facing, wact)) = ch.wpoint_world() {
                     if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
                         w.attach_to(ch.base.uid, x, y, z, facing);
+                        w.base.team = ch.base.team;
                         if wact > 0 {
                             w.base.trans_frame(wact, 2);
                         }
