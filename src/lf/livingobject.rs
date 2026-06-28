@@ -565,6 +565,12 @@ impl LivingObject {
         if self.statemem_attlock > 0 {
             self.statemem_attlock -= 1;
         }
+        if self.trans.lockout > 0 {
+            self.trans.lockout -= 1;
+            if self.trans.lockout == 0 {
+                self.trans.lock = 0;
+            }
+        }
     }
 
     /// Physics + frame wait (base TU without character input)
