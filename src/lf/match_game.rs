@@ -1159,7 +1159,7 @@ impl Match {
                     if !ch.base.opoint_spawned && ch.base.frame.wait_left == fd.wait && op.oid != 0 {
                         let x = ch.base.ps.x + (op.x - fd.centerx) * ch.base.facing as f64;
                         let y = ch.base.ps.y + (op.y - fd.centery);
-                        spawns.push((op.oid, ch.base.team, x, y, ch.base.ps.z, ch.base.facing, op.action));
+                        spawns.push((op.oid, ch.base.team, x, y, ch.base.ps.z, ch.base.facing, op.action, op.dvx, op.dvy));
                         spawned_uids.push(ch.base.uid);
                     }
                 }
@@ -1170,20 +1170,27 @@ impl Match {
                 ch.base.opoint_spawned = true;
             }
         }
-        for (oid, team, x, y, z, facing, action) in spawns {
+        for (oid, team, x, y, z, facing, action, dvx, dvy) in spawns {
             if let Some(data) = self.package_objects.get(&oid).cloned() {
-                let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing);
-                self.next_uid += 1;
-                if action != 0 {
-                    s.base.trans_frame(action, 0);
+                let ty = data.obj_type.as_str();
+                if ty == "lightweapon" || ty == "heavyweapon" || ty == "drink" {
+                    let mut w = crate::lf::weapon::Weapon::new(self.next_uid, data, x, z);
+                    self.next_uid += 1;
+                    w.base.ps.y = y;
+                    w.base.team = team;
+                    w.base.facing = facing;
+                    w.base.ps.vx = dvx * facing as f64;
+                    w.base.ps.vy = dvy;
+                    self.weapons.push(w);
+                } else {
+                    let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing)
+                        .with_velocity(dvx, dvy);
+                    self.next_uid += 1;
+                    if action != 0 {
+                        s.base.trans_frame(action, 0);
+                    }
+                    self.specials.push(s);
                 }
-                self.specials.push(s);
-            } else if let Some(data) = self.package_objects.get(&oid).cloned() {
-                // weapon/effect fallback — treat as effect
-                let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
-                self.next_uid += 1;
-                self.effects.push(eo);
-                let _ = (team, facing, action);
             }
         }
     }

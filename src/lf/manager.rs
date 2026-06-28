@@ -835,6 +835,22 @@ impl Manager {
         while self.acc >= step {
             self.acc -= step;
             if self.screen == Screen::Gameplay {
+                // queue local inputs for future lockstep transport
+                if self.network.active {
+                    let mut keys = vec![];
+                    {
+                        let ctrls = self.controllers.borrow();
+                        if let Some(c0) = ctrls.first() {
+                            for a in ["up", "down", "left", "right", "def", "jump", "att"] {
+                                if c0.is_pressed(a) {
+                                    keys.push(a.to_string());
+                                }
+                            }
+                        }
+                    }
+                    let tu = self.match_game.as_ref().map(|m| m.time).unwrap_or(0);
+                    self.network.push_local_input(tu, keys);
+                }
                 if let Some(m) = self.match_game.as_mut() {
                     m.tu();
                 }
