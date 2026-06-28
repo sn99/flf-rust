@@ -433,14 +433,8 @@ impl Manager {
                     _ => "max",
                 },
             );
-            if let Ok(Some(style)) = js_sys::Reflect::get(root.as_ref(), &"style".into())
-                .and_then(|s| Ok(s))
-            {
-                let _ = style;
-            }
-            let st = root.dyn_ref::<HtmlElement>().map(|e| e.style());
-            if let Some(st) = st {
-                let _ = st.set_property("max-width", &format!("{}px", w + 20));
+            if let Some(el) = root.dyn_ref::<HtmlElement>() {
+                let _ = el.style().set_property("max-width", &format!("{}px", w + 20));
             }
         }
     }
