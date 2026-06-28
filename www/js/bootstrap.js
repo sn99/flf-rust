@@ -1,64 +1,62 @@
-// F.LF Rust bootstrap — assets from separate LF2_19 repo (Project F style)
-import init, { start_game, version } from '../pkg/flf.js?v=20260628c';
+import init, { start_game, version } from '../pkg/flf.js?v=20260628d';
 
 const loading = document.getElementById('loading');
+const REMOTE = 'https://sn99.github.io/LF2_19';
 
-/** Default remote package (same layout as Project-F/LF2_19, JSON on Pages) */
-const REMOTE_PACKAGE = 'https://sn99.github.io/LF2_19';
-
-function localPackage() {
-  try {
-    return new URL('../assets/LF2_19', import.meta.url).href.replace(/\/$/, '');
-  } catch {
-    return 'assets/LF2_19';
-  }
+function cfg() {
+  const el = document.getElementById('flf-config');
+  if (!el) return {};
+  try { return JSON.parse(el.textContent); } catch { return {}; }
 }
 
-function configPackage() {
-  const el = document.getElementById('flf-config');
-  if (el) {
-    try {
-      const cfg = JSON.parse(el.textContent);
-      if (cfg.package) return cfg.package.replace(/\/$/, '');
-    } catch (_) {}
-  }
-  const q = new URLSearchParams(location.search).get('package');
-  if (q) return q.replace(/\/$/, '');
-  return null;
+function absolutize(pkg) {
+  if (!pkg) return null;
+  if (pkg.startsWith('http')) return pkg.replace(/\/$/, '');
+  // relative to page
+  return new URL(pkg, location.href).href.replace(/\/$/, '');
 }
 
 async function probe(url) {
   try {
-    const r = await fetch(url + '/manifest.json', { method: 'GET', cache: 'no-cache' });
+    const r = await fetch(url + '/manifest.json', { cache: 'no-cache', mode: 'cors' });
     return r.ok;
-  } catch {
+  } catch (e) {
+    console.warn('probe fail', url, e);
     return false;
   }
 }
 
 async function resolvePackage() {
-  const configured = configPackage();
-  if (configured && await probe(configured)) return configured;
-  // Prefer remote LF2_19 (small engine deploy)
-  if (await probe(REMOTE_PACKAGE)) return REMOTE_PACKAGE;
-  const local = localPackage();
-  if (await probe(local)) return local;
-  // last resort remote even if probe failed (CORS edge)
-  return configured || REMOTE_PACKAGE;
+  const c = cfg();
+  const q = new URLSearchParams(location.search).get('package');
+  const candidates = [
+    q,
+    c.package,
+    // same-origin assets (bundled on engine Pages)
+    absolutize('assets/LF2_19'),
+    c.remote || REMOTE,
+    REMOTE,
+  ].filter(Boolean).map(p => p.startsWith('http') ? p.replace(/\/$/, '') : absolutize(p));
+
+  const seen = new Set();
+  for (const u of candidates) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    console.log('trying package', u);
+    if (await probe(u)) return u;
+  }
+  return candidates[0] || REMOTE;
 }
 
 try {
   await init();
   console.log('F.LF Rust', version());
   const root = await resolvePackage();
-  console.log('asset package', root);
-  if (loading) loading.textContent = 'Loading package… ' + root;
+  console.log('using package', root);
+  if (loading) loading.textContent = 'Loading ' + root + ' …';
   await start_game(root);
   if (loading) loading.remove();
 } catch (e) {
   console.error(e);
-  if (loading) {
-    loading.innerHTML = 'Failed to load: ' + e +
-      '<br><small>Try <a href="?package=https://sn99.github.io/LF2_19">remote LF2_19</a> or local assets.</small>';
-  }
+  if (loading) loading.textContent = 'Failed: ' + e + ' — try ?package=' + REMOTE;
 }
