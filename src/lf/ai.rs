@@ -1,4 +1,4 @@
-//! AI — chase / defend / special / weapon / fall-recover (LF/AI.js patterns)
+//! AI — LF/AI.js AIin + AIcon patterns + improved heuristics (LF2_19 scripts are full JS; we mirror difficult-AI behavior)
 use crate::core_engine::controller::Controller;
 use crate::lf::livingobject::LivingObject;
 
@@ -8,6 +8,9 @@ pub struct AiBrain {
     pub run_phase: u8,
     pub special_phase: u8,
     pub weapon_uid: Option<u32>,
+    /// AIcon-style key buffer: (key, down)
+    pub key_buf: Vec<(String, bool)>,
+    pub difficulty: i8, // -1 crazy, 0 hard, 1 normal, 2 easy
 }
 
 impl Default for AiBrain {
@@ -18,46 +21,96 @@ impl Default for AiBrain {
             run_phase: 0,
             special_phase: 0,
             weapon_uid: None,
+            key_buf: vec![],
+            difficulty: 0,
         }
     }
 }
 
-/// Fill controller for one TU of AI
-/// weapons: (uid, x, z, held)
+/// AIin.type() mapping
+pub fn ai_type(obj_type: &str) -> i32 {
+    match obj_type {
+        "character" => 0,
+        "lightweapon" => 1,
+        "heavyweapon" => 2,
+        "specialattack" => 3,
+        "baseball" => 4,
+        "criminal" => 5,
+        "drink" => 6,
+        _ => 0,
+    }
+}
+
+fn ai_keypress(ctrl: &mut Controller, key: &str, hold: bool) {
+    if hold {
+        ctrl.keypress(key);
+    } else {
+        // tap
+        ctrl.keypress(key);
+    }
+}
+
+/// Full TU AI fill (LF difficult-style + weapon/drink seek)
 pub fn ai_fill(
     brain: &mut AiBrain,
     self_obj: &LivingObject,
     enemies: &[(u32, f64, f64, f64, i32)],
     weapons: &[(u32, f64, f64, bool, bool)],
     holding_weapon: bool,
+    hold_is_heavy: bool,
+    hold_is_drink: bool,
     ctrl: &mut Controller,
     time: u32,
 ) {
     brain.cc = brain.cc.wrapping_add(1);
     ctrl.clear_states();
+    brain.key_buf.clear();
 
     let st = self_obj.state();
+    let easy_skip = brain.difficulty >= 2 && brain.cc % 2 == 1;
+    if easy_skip {
+        return;
+    }
 
-    if st == 12 && self_obj.fall < 60.0 && self_obj.hp > 0.0 && brain.cc % 7 == 0 {
-        ctrl.keypress("jump");
+    // fall recover
+    if st == 12 && self_obj.fall < 60.0 && self_obj.hp > 0.0 && brain.cc % 6 == 0 {
+        ai_keypress(ctrl, "jump", true);
         return;
     }
     if matches!(st, 10 | 13 | 14) {
         return;
     }
+    // being caught — mash
+    if st == 10 && brain.cc % 3 == 0 {
+        ai_keypress(ctrl, "att", true);
+        return;
+    }
 
-    // seek weapon if unarmed and one is near
+    // drink when holding drink and hurt
+    if holding_weapon && hold_is_drink && self_obj.hp < self_obj.hp_full * 0.7 {
+        if brain.cc % 5 == 0 {
+            ai_keypress(ctrl, "att", true);
+        }
+        return;
+    }
+
+    // seek weapon / drink
     if !holding_weapon {
         let mut best = None;
-        let mut best_d = 120.0_f64;
+        let mut best_score = 200.0_f64;
         for (uid, x, z, held, is_drink) in weapons {
             if *held {
                 continue;
             }
             let d = (x - self_obj.ps.x).hypot(z - self_obj.ps.z);
-            let score = d - (if *is_drink && self_obj.hp < self_obj.hp_full * 0.5 { 40.0 } else { 0.0 });
-            if score < best_d {
-                best_d = score;
+            let score = d
+                - (if *is_drink && self_obj.hp < self_obj.hp_full * 0.5 {
+                    50.0
+                } else {
+                    0.0
+                });
+            if score < best_score {
+                best_score = score;
                 best = Some((*uid, *x, *z));
             }
         }
@@ -66,30 +119,25 @@ pub fn ai_fill(
             let dx = wx - self_obj.ps.x;
             let dz = wz - self_obj.ps.z;
             if dx.abs() > 8.0 {
-                ctrl.keypress(if dx > 0.0 { "right" } else { "left" });
+                ai_keypress(ctrl, if dx > 0.0 { "right" } else { "left" }, true);
             }
             if dz.abs() > 6.0 {
-                ctrl.keypress(if dz > 0.0 { "down" } else { "up" });
+                ai_keypress(ctrl, if dz > 0.0 { "down" } else { "up" }, true);
             }
             if dx.abs() < 40.0 && dz.abs() < 14.0 {
-                ctrl.keypress("att");
+                ai_keypress(ctrl, "att", true);
             }
-            // still engage enemies if very close
-            if best_d > 50.0 {
+            if best_score > 55.0 {
                 return;
             }
         }
-    } else {
-        // holding weapon — LF AI.js weapon_holder: prefer throw or melee
-        if self_obj.hp < self_obj.hp_full * 0.35 && brain.cc % 40 == 0 {
-            // try throw
-            ctrl.keypress("att");
-        } else if brain.cc % 90 == 0 && self_obj.mp < 100.0 {
-            ctrl.keypress("att");
-        }
+    } else if hold_is_heavy {
+        // heavy: approach and smash
+    } else if brain.cc % 100 == 0 && self_obj.mp < 80.0 {
+        ai_keypress(ctrl, "att", true); // throw light
     }
 
-    if brain.cc % 100 == 1 || brain.target_uid.is_none() {
+    if brain.cc % 80 == 1 || brain.target_uid.is_none() {
         let mut best = None;
         let mut best_d = f64::MAX;
         for (uid, x, z, _, _) in enemies {
@@ -116,66 +164,76 @@ pub fn ai_fill(
     let dx = tx - self_obj.ps.x;
     let dz = tz - self_obj.ps.z;
     let dy = ty - self_obj.ps.y;
+    let absx = dx.abs();
+    let absz = dz.abs();
 
-    if dx.abs() < 90.0 && dz.abs() < 22.0 && (*tstate == 3 || *tstate == 5) && time % 18 < 7 {
-        ctrl.keypress("def");
+    // defend vs attack / dash
+    let def_window = if brain.difficulty <= 0 { 10 } else { 6 };
+    if absx < 95.0
+        && absz < 24.0
+        && (*tstate == 3 || *tstate == 5 || *tstate == 9)
+        && time as i32 % 20 < def_window
+    {
+        ai_keypress(ctrl, "def", true);
         return;
     }
 
-    if dx.abs() > 50.0 {
+    // approach / run
+    let run_stop = 90.0;
+    if absx > 48.0 {
         let dir = if dx > 0.0 { "right" } else { "left" };
-        ctrl.keypress(dir);
-        if dx.abs() > 140.0 {
+        ai_keypress(ctrl, dir, true);
+        if absx > run_stop {
             brain.run_phase = brain.run_phase.wrapping_add(1);
-            if brain.run_phase % 3 == 0 {
-                ctrl.keypress(dir);
+            if brain.run_phase % 2 == 0 {
+                ai_keypress(ctrl, dir, true);
             }
         }
     }
-    if dz.abs() > 12.0 {
-        if dz > 0.0 {
-            ctrl.keypress("down");
-        } else {
-            ctrl.keypress("up");
-        }
+    if absz > 12.0 {
+        ai_keypress(ctrl, if dz > 0.0 { "down" } else { "up" }, true);
     }
 
-    if dx.abs() < 70.0 && dz.abs() < 18.0 {
+    // combat range
+    if absx < 72.0 && absz < 18.0 {
         if *tstate != 14 {
-            if dy < -20.0 {
-                ctrl.keypress("jump");
-                if brain.cc % 4 == 0 {
-                    ctrl.keypress("att");
+            if dy < -25.0 {
+                ai_keypress(ctrl, "jump", true);
+                if brain.cc % 3 == 0 {
+                    ai_keypress(ctrl, "att", true);
                 }
+            } else if holding_weapon && !hold_is_drink {
+                ai_keypress(ctrl, "att", true);
             } else {
-                ctrl.keypress("att");
+                ai_keypress(ctrl, "att", true);
+                // combo pressure on hard
+                if brain.difficulty <= 0 && brain.cc % 11 == 0 {
+                    ai_keypress(ctrl, "att", true);
+                }
             }
         }
-    } else if dx.abs() > 110.0 && brain.cc % 45 == 0 {
-        ctrl.keypress("jump");
+    } else if absx > 120.0 && brain.cc % 40 == 0 {
+        ai_keypress(ctrl, "jump", true);
     }
 
-    if self_obj.mp > 180.0 && dx.abs() < 160.0 {
+    // specials D>A / D>J style via def+dir+att
+    let mp_need = if brain.difficulty < 0 { 120.0 } else { 200.0 };
+    if self_obj.mp > mp_need && absx < 180.0 && !holding_weapon {
         brain.special_phase = brain.special_phase.wrapping_add(1);
-        match brain.special_phase % 120 {
-            1..=3 => ctrl.keypress("def"),
-            4..=6 => {
-                if dx > 0.0 {
-                    ctrl.keypress("right");
+        let period = if brain.difficulty < 0 { 60 } else { 100 };
+        match brain.special_phase % period {
+            1..=4 => ai_keypress(ctrl, "def", true),
+            5..=8 => ai_keypress(ctrl, if dx > 0.0 { "right" } else { "left" }, true),
+            9..=12 => {
+                if self_obj.mp > 280.0 {
+                    ai_keypress(ctrl, "jump", true);
                 } else {
-                    ctrl.keypress("left");
-                }
-            }
-            7..=9 => {
-                if self_obj.mp > 250.0 && brain.cc % 2 == 0 {
-                    ctrl.keypress("jump");
-                } else {
-                    ctrl.keypress("att");
+                    ai_keypress(ctrl, "att", true);
                 }
             }
             _ => {}
         }
     }
 
-    let _ = st;
+    let _ = (st, ai_type(&self_obj.obj_type));
 }

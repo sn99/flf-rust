@@ -17,12 +17,13 @@ export interface InitOutput {
     readonly start_game: (a: number, b: number) => any;
     readonly version: () => [number, number];
     readonly wasm_start: () => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h8471e61f49f0f9e1: (a: number, b: number, c: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hc95119054ba6fe56: (a: number, b: number, c: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h21a0648bc28e0ade: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h2020ed747a1b5a9e: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4a7471b45496cd95: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4a7471b45496cd95_3: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__ha35224779a753d24: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h78d8039395d36b5d: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h78d8039395d36b5d_3: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h78d8039395d36b5d_4: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h997d4b3b40b06012: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

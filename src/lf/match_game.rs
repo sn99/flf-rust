@@ -210,12 +210,16 @@ impl Match {
                     .map(|(_, e)| *e)
                     .collect();
                 if time % 3 == 0 {
+                    let hold_heavy = holding && ch.base.hold_type == "heavyweapon";
+                    let hold_drink = holding && ch.base.hold_type == "drink";
                     crate::lf::ai::ai_fill(
                         &mut self.ai_brains[i],
                         &ch.base,
                         &enemies,
                         &weapon_snap,
                         holding,
+                        hold_heavy,
+                        hold_drink,
                         &mut ac,
                         time,
                     );

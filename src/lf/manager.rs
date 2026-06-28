@@ -626,7 +626,11 @@ impl Manager {
                     } else {
                         addr
                     };
-                    g.network.connect(&server, "active");
+                    g.network.set_room_hint(&server);
+                    let role = if server.contains(":passive") || server.ends_with("/p") { "passive" } else { "active" };
+                    let server = server.replace(":passive", "").replace("/p", "");
+                    g.network.set_room_hint(&server);
+                    g.network.connect(&server, role);
                     g.render_network_dom();
                 }
                 let _ = el;
@@ -850,6 +854,23 @@ impl Manager {
                     }
                     let tu = self.match_game.as_ref().map(|m| m.time).unwrap_or(0);
                     self.network.push_local_input(tu, keys);
+                    // remote peer -> P2 controller (lockstep application layer)
+                    let remote = self.network.poll_remote();
+                    if !remote.is_empty() {
+                        let mut ctrls = self.controllers.borrow_mut();
+                        if let Some(c1) = ctrls.get_mut(1) {
+                            c1.clear_states();
+                            if let Some(fr) = remote.last() {
+                                for k in &fr.keys {
+                                    c1.keypress(k);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(m) = self.match_game.as_ref() {
+                        let hps: Vec<f64> = m.characters.iter().map(|c| c.base.hp).collect();
+                        self.network.set_verify_hp(&hps);
+                    }
                 }
                 if let Some(m) = self.match_game.as_mut() {
                     m.tu();
