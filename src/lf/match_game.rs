@@ -25,6 +25,7 @@ pub struct Match {
     pub characters: Vec<Character>,
     pub weapons: Vec<Weapon>,
     pub specials: Vec<SpecialAttack>,
+    pub effects: Vec<crate::lf::effect::EffectObj>,
     pub background: Background,
     pub next_uid: u32,
     pub time: u32,
@@ -98,6 +99,7 @@ impl Match {
             characters,
             weapons,
             specials: vec![],
+            effects: vec![],
             background,
             next_uid,
             time: 0,
@@ -187,6 +189,10 @@ impl Match {
             s.base.physics_tu(bg_z, bg_w);
         }
         self.specials.retain(|s| !s.base.removed);
+        for e in &mut self.effects {
+            e.base.physics_tu(bg_z, bg_w);
+        }
+        self.effects.retain(|e| !e.base.removed && !e.base.dead);
 
         self.process_hits();
         self.special_hits();
@@ -283,6 +289,17 @@ impl Match {
             self.characters[j]
                 .base
                 .injure(inj, fall, dvx, dvy_use, facing);
+            // blood effect id 301
+            let (bx, by, bz) = (
+                self.characters[j].base.ps.x,
+                self.characters[j].base.ps.y - 40.0,
+                self.characters[j].base.ps.z,
+            );
+            if let Some(data) = self.package_objects.get(&301).cloned() {
+                let mut eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
+                self.next_uid += 1;
+                self.effects.push(eo);
+            }
         }
     }
 
@@ -496,6 +513,19 @@ impl Match {
                     w.base.uid as i32,
                     SpriteDraw {
                         sp: w.base.sp.clone(),
+                        cx: fd.centerx,
+                        cy: fd.centery,
+                    },
+                ));
+            }
+        }
+        for e in &self.effects {
+            if let Some(fd) = e.base.frame_data() {
+                items.push((
+                    e.base.ps.z,
+                    e.base.uid as i32,
+                    SpriteDraw {
+                        sp: e.base.sp.clone(),
                         cx: fd.centerx,
                         cy: fd.centery,
                     },
