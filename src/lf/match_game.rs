@@ -316,6 +316,7 @@ impl Match {
         self.burn_broken_fx();
         self.bpoint_blood();
         self.weapon_hits();
+        self.weapon_land_crush();
         self.char_hits_specials();
         self.spawn_opoints();
         self.pick_weapons();
@@ -962,6 +963,34 @@ impl Match {
         }
         for uid in drops {
             self.drop_char_weapon(uid, 3.0, -2.0, 0.0);
+        }
+    }
+
+    /// Heavy weapon falling onto a character (weapon_drop_hurt lite)
+    fn weapon_land_crush(&mut self) {
+        let mut hits: Vec<(usize, f64)> = vec![];
+        for w in &self.weapons {
+            if w.held || w.base.removed || !w.heavy {
+                continue;
+            }
+            if w.base.ps.y >= -8.0 && w.base.ps.vy > 2.0 {
+                for (ci, ch) in self.characters.iter().enumerate() {
+                    if ch.base.removed {
+                        continue;
+                    }
+                    let dx = (w.base.ps.x - ch.base.ps.x).abs();
+                    let dz = (w.base.ps.z - ch.base.ps.z).abs();
+                    if dx < 28.0 && dz < 14.0 && ch.base.ps.y >= -5.0 {
+                        hits.push((ci, 15.0));
+                    }
+                }
+            }
+        }
+        for (ci, inj) in hits {
+            let ax = self.characters[ci].base.ps.x;
+            let _ = self.characters[ci]
+                .base
+                .injure(inj, 10.0, 0.0, -2.0, ax, 0, 0);
         }
     }
 
@@ -1700,7 +1729,15 @@ impl Match {
                 // can't mut borrow ren easily for ensure — use fill fallback
                 let _ = pic;
             }
-            ren.fill_rect_color(x, y, pane_w - 4.0, pane_h, "rgba(20,20,40,0.85)");
+            // team tint border
+            let border = match ch.base.team {
+                1 => "rgba(40,40,120,0.95)",
+                2 => "rgba(120,40,40,0.95)",
+                3 => "rgba(40,100,40,0.95)",
+                4 => "rgba(100,100,40,0.95)",
+                _ => "rgba(20,20,40,0.85)",
+            };
+            ren.fill_rect_color(x, y, pane_w - 4.0, pane_h, border);
             ren.fill_rect_color(x + 2.0, y + 2.0, pane_w - 8.0, pane_h - 4.0, "#1a1a2e");
             // HP
             let hpx = x + 50.0;

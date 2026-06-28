@@ -614,7 +614,9 @@ impl Character {
                 // dircontrol on defend
             }
             8 => {
-                // broken defend — wait for frames
+                // broken defend — stun; clear bdefend gradually
+                self.base.bdefend = (self.base.bdefend - 2.0).max(0.0);
+                self.base.allow_switch_dir = false;
             }
             9 => {
                 // cpoint taction / aaction / jaction
