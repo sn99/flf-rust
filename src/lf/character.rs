@@ -119,6 +119,12 @@ impl Character {
             16 => {
                 // dance of pain — no input
             }
+            13 => {
+                // frozen — no control until frames end
+            }
+            18 | 19 => {
+                // burning / firen specific — frames drive motion
+            }
             _ => {}
         }
 
