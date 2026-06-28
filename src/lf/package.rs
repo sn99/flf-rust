@@ -37,8 +37,11 @@ impl Package {
 
         let mut properties = Value::Object(Default::default());
         if let Some(pe) = &data_list.properties {
-            if !pe.file.is_empty() {
-                properties = fetch_json(&format!("{}/{}", root, pe.file)).await.unwrap_or(properties);
+            let file = pe.get("file").and_then(|f| f.as_str()).unwrap_or("");
+            if !file.is_empty() {
+                properties = fetch_json(&format!("{}/{}", root, file)).await.unwrap_or(properties);
+            } else if pe.is_object() {
+                properties = pe.clone();
             }
         }
 

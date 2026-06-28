@@ -5,10 +5,11 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ObjectEntry {
+    #[serde(default)]
     pub id: i32,
     #[serde(default)]
     pub name: String,
-    #[serde(rename = "type")]
+    #[serde(default, rename = "type")]
     pub obj_type: String,
     #[serde(default)]
     pub file: String,
@@ -31,7 +32,7 @@ pub struct DataList {
     #[serde(default)]
     pub UI: Option<Value>,
     #[serde(default)]
-    pub properties: Option<ObjectEntry>,
+    pub properties: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default)]
