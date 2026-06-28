@@ -33,6 +33,9 @@ pub const EFFECT_DURATION: i32 = 3;
 pub const DEFEND_INJURY_FACTOR: f64 = 0.1;
 pub const DEFEND_BREAK_LIMIT: f64 = 40.0;
 pub const FALL_KO: f64 = 60.0;
+pub const BOUNCE_LIMIT_XY: f64 = 13.0;
+pub const BOUNCE_LIMIT_Y: f64 = 10.0;
+pub const BOUNCE_Y: f64 = 6.0;
 pub const COMBO_TIMEOUT: u32 = 10;
 
 pub fn combo_list() -> Vec<(String, Vec<String>, bool)> {

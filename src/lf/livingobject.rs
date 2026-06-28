@@ -591,9 +591,12 @@ impl LivingObject {
                 if st == 4 || self.frame.n == 212 {
                     self.trans_frame(215, 15); // crouch
                 } else if was_air && (st == 12 || (self.frame.n >= 180 && self.frame.n < 190)) {
-                    // fall land — bounce if fast
-                    let spd = (self.ps.vx * self.ps.vx + self.ps.vy * self.ps.vy).sqrt();
-                    if spd > 13.4 || self.ps.vy.abs() > 11.0 {
+                    // fall land — bounce if fast (GC.character.bounceup)
+                    let spd = (self.ps.vx * self.ps.vx
+                        + self.ps.vy * self.ps.vy
+                        + self.ps.vz * self.ps.vz)
+                        .sqrt();
+                    if spd > global::BOUNCE_LIMIT_XY || self.ps.vy.abs() > global::BOUNCE_LIMIT_Y {
                         // bounce up
                         let absorb = global::bounce_absorb(self.ps.vx);
                         if self.ps.vx.abs() > absorb {
@@ -601,7 +604,7 @@ impl LivingObject {
                         } else {
                             self.ps.vx = 0.0;
                         }
-                        self.ps.vy = -4.25; // bounceup.y
+                        self.ps.vy = -global::BOUNCE_Y; // bounceup.y
                         self.trans_frame(182, 10);
                     } else if self.data.frames.contains_key(&219) {
                         self.trans_frame(219, 15); // lying
