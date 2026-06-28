@@ -146,6 +146,11 @@ impl Character {
             _ => {}
         }
 
+        // F.LF: frame event on new frame
+        if self.base.statemem_frame_tu {
+            let _ = crate::lf::character_states::dispatch(self, "frame", None);
+        }
+
         if let Some(ctrl) = ctrl {
             if self.base.held_by.is_none() && !self.base.effect.stuck && !matches!(state, 10 | 11 | 12 | 13 | 14 | 16 | 18) {
                 self.dir_up = ctrl.is_pressed("up");
@@ -154,7 +159,10 @@ impl Character {
             }
         }
 
-        // per-state TU
+        // F.LF state TU event
+        let _ = crate::lf::character_states::dispatch(self, "TU", None);
+
+        // per-state TU (legacy reinforce; states module owns most)
         match state {
             2 => {
                 let spd = self.base.data.bmp.running_speed;
@@ -468,6 +476,23 @@ impl Character {
             if pressed {
                 self.combo.feed(name);
             }
+        }
+        // F.LF states[N]('combo', K) for basic keys (run stop etc.)
+        for (pressed, name) in [(defend, "def"), (jump, "jump"), (att, "att")] {
+            if pressed {
+                if let Some(r) = crate::lf::character_states::dispatch(self, "combo", Some(name)) {
+                    if r == crate::lf::character_states::COMBO_CONSUMED {
+                        self.running = false;
+                        return;
+                    }
+                }
+            }
+        }
+        if left && !self.last_left {
+            let _ = crate::lf::character_states::dispatch(self, "combo", Some("left"));
+        }
+        if right && !self.last_right {
+            let _ = crate::lf::character_states::dispatch(self, "combo", Some("right"));
         }
         if let Some(name) = self.combo.match_combo() {
             if let Some(tag) = global::combo_tag(&name) {
