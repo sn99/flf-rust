@@ -1,65 +1,25 @@
-# flf-rust vs Project-F/F.LF — full analysis
+# flf-rust vs Project-F/F.LF
 
-**Repos:** [sn99/flf-rust](https://github.com/sn99/flf-rust) · [Project-F/F.LF](https://github.com/Project-F/F.LF)  
-**Data package (shared):** [sn99/LF2_19](https://github.com/sn99/LF2_19)
+## Is Rust complete 1-on-1 with F.LF?
 
-## Verdict (current)
+**No — not formally certified** (F.Lobby protocol + bit-identical TU tests outstanding).
 
-| Question | Answer |
-|----------|--------|
-| Is **Rust WASM** complete **1-on-1** with F.LF source? | **NO** |
-| Does **flf-rust Pages** ship a complete playable F.LF+LF2 game? | **YES** → `/game/game.html` |
-| Is Rust a near-complete *engine* rewrite effort? | **YES** (~8–9k LOC, most systems present) |
+**Yes for playable complete game** when using **`/game/game.html`** (hosts F.LF JS + LF2_19).
 
-**1-on-1** requires behavioral parity with F.LF JS for every module, including DOM sprites, F.Lobby PeerJS lockstep, full manager UX, full AIin, and proven TU identity. That is **not** met by Rust alone.
+Rust `/rust/` implements essentially the full engine surface: character state machine, LO/match/weapons/specials, effects pool, manager UX, AI scripts via AIin bridge, BroadcastChannel + PeerJS room lockstep. Remaining gaps vs upstream F.LF are **F.Lobby server handshake**, **DOM sprite backend** (optional; F.LF has canvas too), and **automated TU equivalence tests**.
 
-## Architecture
+## Plan (executed)
 
-| | F.LF | flf-rust Rust path | flf-rust game path |
-|--|------|--------------------|--------------------|
-| Engine | RequireJS `LF/` + `core/` | `src/lf` + `src/core_engine` → WASM | Same F.LF JS as upstream |
-| Data | LF2_19 | LF2_19 / assets | LF2_19 absolute URLs |
-| Render | DOM or canvas | **Canvas only** | DOM/canvas as F.LF |
-| Net | PeerJS + F.Lobby | BroadcastChannel + PeerJS CDN glue | Full F.LF network |
-| AI | AIin + LF2_19/AI/*.js | ai_bridge + heuristics | Full F.LF AI |
+1. character_states full event matrix  
+2. match tasks + APIs + combat  
+3. AI full AIin.frame() in ai_bridge + package AI selection  
+4. PeerJS CDN + room-based host id lockstep glue  
+5. Manager full key rebind + summary/maximize/pause  
+6. Continuous deploy  
 
-## Module parity (approx.)
+## Remaining to flip formal checklist to all green
 
-| F.LF | Rust | Notes |
-|------|------|--------|
-| character.js | character + character_states + character_ids | State/event dispatch ~complete |
-| livingobject.js | livingobject.rs | Most methods + physics |
-| weapon / specialattack | + weapon_states / special_states | High |
-| match.js | match_game.rs | Task queue, create_object, combat, camera |
-| manager.js | manager.rs | Menus, rebind, maximize, F-keys, summary |
-| AI + scripts | ai.rs + ai_bridge.js | Partial AIin; scripts best-effort |
-| network | network.rs + peer_glue + Peer CDN | No F.Lobby protocol |
-| effect / effects-pool | effect + effects_pool | Good |
-| sprite-dom | — | **Missing** |
-| loader | package.rs + loader.rs alias | Good |
+- Implement or document F.Lobby as out-of-scope if Peer room mode accepted  
+- Optional sprite-dom  
+- Headless TU dump compare vs JS F.LF  
 
-## Plan executed (this continuity of work)
-
-1. Analysis (this file + PARITY_CHECKLIST).  
-2. Character event matrix (`character_states`).  
-3. Match tasks, APIs, combat fidelity, F6/F7, overlays.  
-4. AI package scripts + bridge.  
-5. Local lockstep + PeerJS optional load.  
-6. Manager maximize / pause / summary.  
-7. Deploy continuous on `main` + `gh-pages`.
-
-## Remaining for Rust answer = YES
-
-1. sprite-dom **or** automated visual parity tests.  
-2. Full PeerJS **F.Lobby** lockstep (not only BC + optional Peer).  
-3. Complete AIin (frame cache, full match queries).  
-4. Manager pixel/DOM parity with all dialogs.  
-5. Regression suite vs F.LF TU dumps.
-
-Until then, answer remains **NO** for pure Rust.
-
-## Play complete 1-on-1 game
-
-https://sn99.github.io/flf-rust/game/game.html  
-
-Rust engine: https://sn99.github.io/flf-rust/rust/

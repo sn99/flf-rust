@@ -371,12 +371,14 @@ impl Manager {
         html.push_str(
             r#"</table>
             <p class="cs_hint">Click a key cell, then press a key to rebind. Esc/OK saves.</p>
-            <div class="keybind_row">P1 att defaults: j · P2 att: numpad 1 — click <kbd data-rebind="0:att">rebind P1 att</kbd>
-            <kbd data-rebind="1:att">rebind P2 att</kbd>
-            <kbd data-rebind="0:jump">P1 jump</kbd>
-            <kbd data-rebind="0:def">P1 def</kbd>
-            <kbd data-rebind="1:jump">P2 jump</kbd>
-            <kbd data-rebind="1:def">P2 def</kbd></div>
+            <div class="keybind_row">Click to rebind:
+            <kbd data-rebind="0:up">P1 up</kbd> <kbd data-rebind="0:down">P1 down</kbd>
+            <kbd data-rebind="0:left">P1 left</kbd> <kbd data-rebind="0:right">P1 right</kbd>
+            <kbd data-rebind="0:def">P1 def</kbd> <kbd data-rebind="0:jump">P1 jump</kbd> <kbd data-rebind="0:att">P1 att</kbd><br/>
+            <kbd data-rebind="1:up">P2 up</kbd> <kbd data-rebind="1:down">P2 down</kbd>
+            <kbd data-rebind="1:left">P2 left</kbd> <kbd data-rebind="1:right">P2 right</kbd>
+            <kbd data-rebind="1:def">P2 def</kbd> <kbd data-rebind="1:jump">P2 jump</kbd> <kbd data-rebind="1:att">P2 att</kbd>
+            </div>
             <button type="button" class="ok_hit menu_hit" data-i="99">OK</button>
             </div></div>"#,
         );

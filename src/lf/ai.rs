@@ -45,6 +45,24 @@ pub fn snapshot_json(
     bg_z0: f64,
     bg_z1: f64,
 ) -> String {
+    // Embed compact frame table for AIin.frame(N)
+    let mut frames = serde_json::Map::new();
+    for (k, f) in self_obj.data.frames.iter().take(80) {
+        frames.insert(
+            k.to_string(),
+            serde_json::json!({
+                "state": f.state,
+                "wait": f.wait,
+                "next": f.next,
+                "dvx": f.dvx,
+                "dvy": f.dvy,
+                "mp": f.mp,
+                "hit_a": f.hit_a,
+                "hit_d": f.hit_d,
+                "hit_j": f.hit_j,
+            }),
+        );
+    }
     serde_json::json!({
         "x": self_obj.ps.x,
         "y": self_obj.ps.y,
@@ -66,9 +84,19 @@ pub fn snapshot_json(
         "hold_uid": hold_uid,
         "blink": self_obj.effect.blink,
         "effect_timeout": self_obj.effect.timeout,
+        "super_armor": self_obj.effect.super_armor,
         "catch_counter": catch_counter,
         "bg_w": bg_w,
         "bg_z": [bg_z0, bg_z1],
+        "frames": frames,
+        "bmp": {
+            "running_speed": self_obj.data.bmp.running_speed,
+            "walking_speed": self_obj.data.bmp.walking_speed,
+            "running_speedz": self_obj.data.bmp.running_speedz,
+            "walking_speedz": self_obj.data.bmp.walking_speedz,
+        },
+        "properties": self_obj.properties,
+        "f6_mode": self_obj.skip_mp_cost,
     })
     .to_string()
 }
