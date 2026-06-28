@@ -261,7 +261,12 @@ impl Character {
                     let _ = crate::lf::character_ids::id_update(self, "state1280_disappear", None);
                 }
             }
-            16 => {}
+            16 => {
+                // injured 2 / dance of pain — vulnerable to catch (kind 1) and super catch (kind 3)
+                // lock until frame advances; allow slight blink
+                self.base.effect.blink = self.base.trans.wait % 3 == 0;
+                self.base.allow_switch_dir = false;
+            }
             18 | 19 => {
                 // firen-specific handled in id_tu; generic burn drift
             }

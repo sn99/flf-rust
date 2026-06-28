@@ -311,7 +311,8 @@ impl Match {
 
     fn process_hits(&mut self) {
         let n = self.characters.len();
-        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32, i32)> = vec![]; // + itr_kind
+        // i, j, injury, fall, dvx, dvy, arest, effect, kind, vrest
+        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32, i32, i32)> = vec![];
 
         for i in 0..n {
             if self.characters[i].base.removed || self.characters[i].base.arest > 0 {
@@ -332,17 +333,9 @@ impl Match {
                 {
                     continue;
                 }
-                if self.characters[i]
-                    .base
-                    .vrest
-                    .get(&self.characters[j].base.uid)
-                    .copied()
-                    .unwrap_or(0)
-                    > 0
-                {
-                    continue;
-                }
-                if self.characters[j].base.effect.super_armor {
+                // victim-side vrest: cannot be hit again by this attacker uid yet
+                let att_uid = self.characters[i].base.uid;
+                if !self.characters[j].base.itr_vrest_test(att_uid) {
                     continue;
                 }
                 let Some(vframe) = self.characters[j].base.frame_data().cloned() else { continue };
@@ -352,136 +345,164 @@ impl Match {
                     &vframe,
                 );
                 for (vol, itr) in &itrs {
-                    // Combat itr kinds (LF2): 0 normal, 3 fire, 4 ice, 5, 8 heal-ish negative injury in data
-                    // 1 catch handled separately; 2 weapon pick; 9 shield deplete on specials
-                    if !matches!(itr.kind, 0 | 3 | 4 | 5 | 8) {
+                    // Combat itr kinds; 1 catch / 2 pick handled elsewhere; 9 shield on specials
+                    if !matches!(itr.kind, 0 | 3 | 4 | 5 | 8 | 10 | 11 | 15 | 16) {
                         continue;
                     }
                     for b in &bdys {
-                        // xy intersect + z range
                         if vol.intersects(b) {
                             let injury = if itr.injury != 0.0 { itr.injury } else { 20.0 };
                             let fall = if itr.fall != 0.0 { itr.fall } else { global::DEFAULT_FALL };
-                            events.push((i, j, injury, fall, vol.vx, itr.dvy, itr.arest, itr.effect, itr.kind));
+                            let vrest = if itr.vrest != 0 { itr.vrest } else { global::DEFAULT_VREST };
+                            events.push((
+                                i,
+                                j,
+                                injury,
+                                fall,
+                                vol.vx,
+                                itr.dvy,
+                                itr.arest,
+                                itr.effect,
+                                itr.kind,
+                                vrest,
+                            ));
                         }
                     }
                 }
             }
         }
 
-        for (i, j, injury, fall, dvx, dvy, arest, eff, ikind) in events {
+        let mut drops: Vec<(u32, f64, f64)> = vec![]; // char uid, vx, vy for weapon drop
+        for (i, j, injury, fall, dvx, dvy, arest, eff, ikind, vrest) in events {
+            let att_uid = self.characters[i].base.uid;
+            let att_x = self.characters[i].base.ps.x;
             let facing = self.characters[i].base.facing;
-            self.characters[i].base.arest = if arest > 0 { arest } else { global::DEFAULT_AREST };
-            // hit_stop: stall attacker; Davis/Deep overrides via id_update
+
+            self.characters[i].base.itr_arest_update(arest);
             if !crate::lf::character_ids::state3_hit_stop(&mut self.characters[i]) {
                 let hs = global::DEFAULT_HIT_STOP;
                 self.characters[i].base.trans.inc_wait(hs, 20, 1);
                 self.characters[i].base.trans.wait = self.characters[i].base.trans.wait.max(hs);
             }
-            let vid = self.characters[j].base.uid;
-            self.characters[i]
-                .base
-                .vrest
-                .insert(vid, global::DEFAULT_VREST);
+
+            // attacker tracks victim (legacy) + victim tracks attacker (F.LF itr_vrest)
+            let vic_uid = self.characters[j].base.uid;
+            self.characters[i].base.vrest.insert(vic_uid, vrest);
+            self.characters[j].base.itr_vrest_update(att_uid, vrest);
 
             let defending = self.characters[j].base.state() == 7;
             let mut inj = injury;
             if defending {
-                // facing attacker?
                 let same_dir = self.characters[j].base.facing == facing;
                 if !same_dir {
                     inj *= global::DEFEND_INJURY_FACTOR;
                     self.characters[j].base.bdefend += injury;
                     if self.characters[j].base.bdefend < global::DEFEND_BREAK_LIMIT {
                         self.characters[j].base.trans_frame(111, 8);
+                        self.sound.play("1/002");
                         continue;
                     }
-                    // break defend
                     self.characters[j].base.trans_frame(112, 12);
                 }
             }
-            // super armor absorbs without stun (still take reduced hp)
-            let armor = self.characters[j].base.effect.super_armor;
+
             let dvy_use = if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY };
             let mut inj2 = inj;
+            let mut eff2 = eff;
             if ikind == 8 {
-                // heal-type itr: negative injury heals
                 inj2 = -inj.abs().max(10.0);
             }
-            if armor && ikind != 8 {
-                self.characters[j].base.hp = (self.characters[j].base.hp - inj2 * 0.35).max(0.0);
-                self.characters[j].base.injury_total += inj2 * 0.35;
-            } else {
-                self.characters[j].base.injure(
-                    inj2,
-                    if ikind == 8 { 0.0 } else { fall },
-                    dvx,
-                    if ikind == 8 { 0.0 } else { dvy_use },
-                    facing,
-                );
+            // kind 4 / effect ice mapping
+            if ikind == 4 && eff2 <= 0 {
+                eff2 = 3;
             }
-            // ice (kind 4) → frozen state 13 frames ~200
-            if ikind == 4 && !armor {
-                self.characters[j].base.trans_frame(200, 15);
-                self.characters[j].base.effect.stuck = true;
-                self.characters[j].base.effect.timeout = 40;
-                self.characters[j].base.ps.vx *= 0.3;
+            if (ikind == 3 || ikind == 5) && eff2 <= 0 {
+                eff2 = 2;
             }
-            // fire (kind 3/5) → burn states 18/19
-            if (ikind == 3 || ikind == 5) && !armor {
-                let burn = if self.characters[j].base.ps.y < 0.0 { 19 } else { 18 };
-                // use frame that has that state if present, else 203-ish fire fall
-                if self.characters[j].base.data.frames.values().any(|f| f.state == burn) {
-                    // pick first frame with burn state
-                    let fr = self.characters[j]
-                        .base
-                        .data
-                        .frames
-                        .iter()
-                        .find(|(_, f)| f.state == burn)
-                        .map(|(k, _)| *k)
-                        .unwrap_or(203);
-                    self.characters[j].base.trans_frame(fr, 12);
-                } else {
-                    self.characters[j].base.trans_frame(203, 12);
+            // kind 15 whirlwind_force — pull only, light damage
+            if ikind == 15 {
+                let ax = att_x;
+                let az = self.characters[i].base.ps.z;
+                let dx = (ax - self.characters[j].base.ps.x).signum() * 4.0;
+                let dz = (az - self.characters[j].base.ps.z).signum() * 2.0;
+                self.characters[j].base.ps.x += dx;
+                self.characters[j].base.ps.z += dz;
+                inj2 = inj2.max(5.0);
+            }
+
+            let (drop_w, snd_eff) = self.characters[j].base.injure(
+                inj2,
+                if ikind == 8 { 0.0 } else { fall },
+                dvx * facing as f64,
+                if ikind == 8 { 0.0 } else { dvy_use },
+                att_x,
+                eff2,
+                ikind,
+            );
+            if drop_w {
+                let uid = self.characters[j].base.uid;
+                drops.push((uid, dvx * facing as f64, dvy_use));
+            }
+            match snd_eff {
+                2 | 20 | 21 | 22 | 23 => self.sound.play("1/070"),
+                3 | 30 => {
+                    if self.characters[j].base.state() == 13 {
+                        self.sound.play("1/066");
+                    } else {
+                        self.sound.play("1/065");
+                    }
                 }
-                self.characters[j].base.effect.blink = true;
-                self.characters[j].base.effect.timeout = 30;
+                0 | 1 => self.sound.play("1/002"),
+                _ => {}
             }
-            // blood effect id 301
+
             let (bx, by, bz) = (
                 self.characters[j].base.ps.x,
                 self.characters[j].base.ps.y - 40.0,
                 self.characters[j].base.ps.z,
             );
-            let eid = crate::lf::effect::effect_id_from_num(0); // blood default; itr effect applied below
-            // prefer 301 blood, 300 blast; ice/fire prefer matching effect nums
             let mut try_ids = vec![301i32, 300];
-            if ikind == 4 {
+            if eff2 == 3 || ikind == 4 || ikind == 16 {
                 try_ids.insert(0, 302);
             }
-            if ikind == 3 || ikind == 5 {
+            if eff2 == 2 || ikind == 3 || ikind == 5 {
                 try_ids.insert(0, 303);
             }
-            if eff > 0 {
-                try_ids.insert(0, crate::lf::effect::effect_id_from_num(eff));
+            if eff2 > 0 {
+                try_ids.insert(0, crate::lf::effect::effect_id_from_num(eff2));
             }
-            // prefer pooled blood/blast when template matches; else allocate into effects vec
-            let mut spawned = false;
-            if try_ids.first().copied() == Some(301) || try_ids.first().copied() == Some(300) {
-                spawned = self.effects_pool.create(bx, by, bz, 0);
-            }
+            let mut spawned = self.effects_pool.create(bx, by, bz, 0);
             if !spawned {
                 for try_id in try_ids {
                     if let Some(data) = self.package_objects.get(&try_id).cloned() {
                         let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
                         self.next_uid += 1;
                         self.effects.push(eo);
+                        spawned = true;
                         break;
                     }
                 }
             }
-            let _ = eid;
+            let _ = spawned;
+        }
+        for (cuid, vx, vy) in drops {
+            self.drop_char_weapon(cuid, vx, vy, 0.0);
+        }
+    }
+
+    fn drop_char_weapon(&mut self, char_uid: u32, vx: f64, vy: f64, vz: f64) {
+        let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == char_uid) else {
+            return;
+        };
+        let Some(wid) = ch.hold_weapon.take() else {
+            return;
+        };
+        ch.base.hold_type.clear();
+        if ch.base.holding_uid == Some(wid) {
+            ch.base.holding_uid = None;
+        }
+        if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
+            w.drop(vx, vy, vz);
         }
     }
 
@@ -667,8 +688,9 @@ impl Match {
                 if i == j || self.characters[j].base.removed { continue; }
                 if self.characters[i].base.team == self.characters[j].base.team && self.characters[i].base.team != 0 { continue; }
                 let Some(vframe) = self.characters[j].base.frame_data().cloned() else { continue };
-                // only catch if victim in fall-ish or stand vulnerable
+                // catch vulnerable incl. dance of pain (16); super catch kind 3 also uses 16
                 if !matches!(self.characters[j].base.state(), 0 | 1 | 8 | 11 | 12 | 16) { continue; }
+                // super catch (itr kind 3 on attacker) only enforced when victim is 16 — handled by allowing 16 always
                 let bdys = Mech::body_volumes(&self.characters[j].base.ps, self.characters[j].base.facing, &vframe);
                 for (vol, itr) in &itrs {
                     if itr.kind != 1 { continue; }
@@ -834,15 +856,31 @@ impl Match {
                 }
             }
         }
+        let mut drops = vec![];
         for (si, ci, inj, fall, dvx, dvy) in events {
             let facing = self.specials[si].base.facing;
+            let att_x = self.specials[si].base.ps.x;
             let next_frame = self.specials[si]
                 .base
                 .frame_data()
                 .map(|f| if f.next > 0 { f.next } else { 1000 })
                 .unwrap_or(1000);
-            self.characters[ci].base.injure(inj, fall, dvx, if dvy != 0.0 { dvy } else { -3.0 }, facing);
+            let (drop_w, _) = self.characters[ci].base.injure(
+                inj,
+                fall,
+                dvx * facing as f64,
+                if dvy != 0.0 { dvy } else { -3.0 },
+                att_x,
+                0,
+                0,
+            );
+            if drop_w {
+                drops.push(self.characters[ci].base.uid);
+            }
             self.specials[si].base.trans_frame(next_frame, 5);
+        }
+        for uid in drops {
+            self.drop_char_weapon(uid, 4.0, -3.0, 0.0);
         }
     }
 
@@ -871,9 +909,22 @@ impl Match {
                 }
             }
         }
+        let mut drops = vec![];
         for (wi, ci, inj, fall, dvx, dvy) in ev {
             let facing = self.weapons[wi].base.facing;
-            self.characters[ci].base.injure(inj, fall, dvx, if dvy != 0.0 { dvy } else { -4.0 }, facing);
+            let att_x = self.weapons[wi].base.ps.x;
+            let (drop_w, _) = self.characters[ci].base.injure(
+                inj,
+                fall,
+                dvx * facing as f64,
+                if dvy != 0.0 { dvy } else { -4.0 },
+                att_x,
+                0,
+                0,
+            );
+            if drop_w {
+                drops.push(self.characters[ci].base.uid);
+            }
             // weapon rebound
             self.weapons[wi].base.ps.vx *= -0.4;
             self.weapons[wi].base.ps.vy = -2.0;
@@ -887,6 +938,9 @@ impl Match {
                 self.weapons[wi].die();
                 self.spawn_broken(x, y, z);
             }
+        }
+        for uid in drops {
+            self.drop_char_weapon(uid, 3.0, -2.0, 0.0);
         }
     }
 

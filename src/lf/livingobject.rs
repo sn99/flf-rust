@@ -287,46 +287,159 @@ impl LivingObject {
         self.trans_frame(next, 10)
     }
 
-    pub fn injure(&mut self, injury: f64, fall_add: f64, dvx: f64, dvy: f64, attacker_facing: i32) {
+    /// Faithful subset of character.js `hit` fall() / falldown() / posteffect()
+    /// Returns (drop_weapon, effect_sound_hint) for match to act on.
+    pub fn injure(
+        &mut self,
+        injury: f64,
+        fall_add: f64,
+        dvx: f64,
+        dvy: f64,
+        attacker_x: f64,
+        effect_num: i32,
+        itr_kind: i32,
+    ) -> (bool, i32) {
         if injury < 0.0 {
             self.hp = (self.hp - injury).min(self.hp_full);
-            return;
+            return (false, -1);
         }
-        if self.effect.super_armor {
-            return;
+        if self.effect.super_armor && itr_kind != 8 {
+            self.hp = (self.hp - injury * 0.35).max(0.0);
+            self.injury_total += injury * 0.35;
+            return (false, effect_num);
         }
-        self.hp -= injury;
-        self.injury_total += injury;
-        self.fall += if fall_add != 0.0 { fall_add } else { global::DEFAULT_FALL };
-        self.ps.vx = dvx;
-        if dvy != 0.0 {
-            self.ps.vy = dvy;
-        } else {
-            self.ps.vy = global::DEFAULT_FALL_DVY;
+
+        let mut inj = injury;
+        // flute force kinds 10/11 double injury while falling
+        if (itr_kind == 10 || itr_kind == 11) && self.state() == 12 {
+            inj *= 2.0;
         }
+
+        self.hp -= inj;
+        self.injury_total += inj;
         if self.hp < 0.0 {
             self.hp = 0.0;
         }
-        if self.hp <= 0.0 {
-            self.trans_frame(180, 20); // fall
-            if !self.data.frames.contains_key(&180) {
-                self.trans_frame(181, 20);
+
+        // effect-driven outcomes (posteffect) take priority over generic fall
+        let mut drop_w = false;
+        match effect_num {
+            2 | 20 | 21 | 22 | 23 => {
+                // fire
+                drop_w = true;
+                self.ps.vx = dvx;
+                if dvy != 0.0 {
+                    self.ps.vy = dvy;
+                }
+                self.trans_frame(203, 36);
+                self.effect.blink = true;
+                self.effect.timeout = 20;
+                return (drop_w, effect_num);
             }
-        } else if self.fall >= global::FALL_KO {
-            self.trans_frame(180, 15);
-        } else if self.bdefend > 0.0 && self.state() == 7 {
-            // defended — minor
-            self.trans_frame(111, 10);
+            3 | 30 => {
+                // ice
+                drop_w = true;
+                self.ps.vx = dvx;
+                if self.state() != 13 {
+                    self.trans_frame(200, 38);
+                } else {
+                    self.trans_frame(182, 21);
+                }
+                self.effect.stuck = true;
+                self.effect.timeout = 40;
+                return (drop_w, effect_num);
+            }
+            4 => {
+                drop_w = true;
+            }
+            _ => {}
+        }
+
+        // itr kind 16 on victim → ice frame 200
+        if itr_kind == 16 {
+            self.trans_frame(200, 38);
+            self.ps.vx = dvx;
+            return (true, 3);
+        }
+
+        self.fall += if fall_add != 0.0 {
+            fall_add
         } else {
-            // injury frames 220-229
-            let inj = if self.data.frames.contains_key(&220) { 220 } else { 0 };
-            if inj != 0 {
-                self.trans_frame(inj, 12);
+            global::DEFAULT_FALL
+        };
+        self.ps.vx = dvx;
+        let ef_dvy = if dvy != 0.0 {
+            dvy
+        } else {
+            global::DEFAULT_FALL_DVY
+        };
+
+        let fall = self.fall;
+        let airborne = self.ps.y < 0.0 || self.ps.vy < 0.0;
+        let do_falldown = self.state() == 13
+            || airborne
+            || self.hp <= 0.0
+            || fall > global::FALL_KO;
+
+        if do_falldown {
+            self.fall = 0.0;
+            self.ps.vy = ef_dvy;
+            let front = (attacker_x > self.ps.x) == (self.facing > 0);
+            if front {
+                self.trans_frame(180, 21);
+            } else {
+                self.trans_frame(186, 21);
+            }
+            drop_w = true;
+        } else if self.bdefend > 0.0 && self.state() == 7 {
+            self.trans_frame(111, 10);
+        } else if fall > 0.0 && fall <= 20.0 {
+            self.trans_frame(220, 20);
+        } else if fall > 20.0 && fall <= 30.0 {
+            self.trans_frame(222, 20);
+        } else if fall > 30.0 && fall <= 40.0 {
+            self.trans_frame(224, 20);
+        } else if fall > 40.0 && fall <= 60.0 {
+            self.trans_frame(226, 20);
+        } else {
+            // light injury / dance of pain entry
+            if self.data.frames.contains_key(&220) {
+                self.trans_frame(220, 12);
             }
         }
-        let _ = attacker_facing;
+
+        // fall frames that drop weapon in F.LF posteffect 0/1
+        if matches!(self.frame.n, 180 | 186) || do_falldown {
+            drop_w = true;
+        }
+
         self.effect.blink = true;
         self.effect.timeout = 8;
+        (drop_w, effect_num)
+    }
+
+    pub fn itr_vrest_test(&self, att_uid: u32) -> bool {
+        !self.vrest.contains_key(&att_uid)
+    }
+
+    pub fn itr_vrest_update(&mut self, att_uid: u32, vrest: i32) {
+        let v = if vrest > 0 {
+            vrest
+        } else {
+            global::DEFAULT_VREST
+        };
+        self.vrest.insert(att_uid, v);
+    }
+
+    pub fn itr_arest_update(&mut self, arest: i32) {
+        let a = if arest > 0 {
+            arest
+        } else {
+            global::DEFAULT_AREST
+        };
+        if a > self.arest {
+            self.arest = a;
+        }
     }
 
     pub fn recover_tu(&mut self) {
