@@ -606,6 +606,24 @@ impl Manager {
                             if let Some(m) = g.match_game.as_mut() {
                                 m.toggle_pause();
                             }
+                        } else if key == "F5" {
+                            // LF2 F5 reset positions-ish: restart match
+                            g.start_match();
+                        } else if key == "F6" {
+                            // infinite mp cheat lite
+                            if let Some(m) = g.match_game.as_mut() {
+                                for ch in &mut m.characters {
+                                    ch.base.mp = ch.base.mp_full;
+                                }
+                            }
+                        } else if key == "F7" {
+                            if let Some(m) = g.match_game.as_mut() {
+                                for ch in &mut m.characters {
+                                    ch.base.hp = ch.base.hp_full;
+                                    ch.base.dead = false;
+                                    ch.base.removed = false;
+                                }
+                            }
                         }
                     }
                 }
