@@ -37,6 +37,8 @@ features = [
   "HtmlSelectElement",
   "HtmlTextAreaElement",
   "HtmlButtonElement",
+  "HtmlAudioElement",
+  "HtmlMediaElement",
   "HtmlCollection",
   "CssStyleDeclaration",
   "CanvasRenderingContext2d",

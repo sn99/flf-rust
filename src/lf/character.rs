@@ -286,7 +286,19 @@ impl Character {
                     self.base.trans_frame(0, 5);
                 }
             }
-            3 | 11 | 12 | 15 | 16 | 8 | 9 | 10 => {}
+            9 => {
+                // catching — att throws (frame 121+)
+                if att {
+                    self.base.trans_frame(121, 12);
+                }
+                if jump {
+                    self.base.trans_frame(122, 12);
+                }
+            }
+            10 => {
+                // being caught — no input
+            }
+            3 | 11 | 12 | 15 | 16 | 8 => {}
             _ => {}
         }
     }

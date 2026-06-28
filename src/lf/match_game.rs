@@ -34,6 +34,8 @@ pub struct Match {
     pub camera_x: f64,
     controllers: Rc<RefCell<Vec<Controller>>>,
     package_objects: std::collections::HashMap<i32, ObjectData>,
+    pub sound: crate::lf::soundpack::Soundpack,
+    pub ai_brains: Vec<crate::lf::ai::AiBrain>,
     pub ui_panel: Option<Value>,
     pub winner_team: Option<i32>,
 }
@@ -95,6 +97,9 @@ impl Match {
             }
         }
 
+        let ai_brains = characters.iter().map(|c| {
+                if c.base.ai { crate::lf::ai::AiBrain::default() } else { crate::lf::ai::AiBrain::default() }
+            }).collect();
         Ok(Self {
             characters,
             weapons,
@@ -108,6 +113,12 @@ impl Match {
             camera_x: 0.0,
             controllers,
             package_objects: package.objects.clone(),
+            sound: {
+                let mut s = crate::lf::soundpack::Soundpack::new();
+                s.set_root(&package.root);
+                s
+            },
+            ai_brains,
             ui_panel: package.ui.get("panel").cloned(),
             winner_team: None,
         })
@@ -131,8 +142,25 @@ impl Match {
             .map(|c| (c.base.team, c.base.ps.x, c.base.ps.z, c.base.removed || c.base.hp <= 0.0))
             .collect();
 
+        let enemy_snap: Vec<(u32, f64, f64, f64, i32)> = self
+            .characters
+            .iter()
+            .map(|c| {
+                (
+                    c.base.uid,
+                    c.base.ps.x,
+                    c.base.ps.z,
+                    c.base.ps.y,
+                    c.base.state(),
+                )
+            })
+            .collect();
+
         let ctrls = self.controllers.borrow();
         let time = self.time;
+        while self.ai_brains.len() < self.characters.len() {
+            self.ai_brains.push(crate::lf::ai::AiBrain::default());
+        }
         for (i, ch) in self.characters.iter_mut().enumerate() {
             if ch.base.ai {
                 let mut cfg = std::collections::HashMap::new();
@@ -140,33 +168,19 @@ impl Match {
                     cfg.insert(k.to_string(), k.to_string());
                 }
                 let mut ac = Controller::new_keyboard(cfg);
-                let team = snapshot[i].0;
-                let sx = snapshot[i].1;
-                let sz = snapshot[i].2;
-                if let Some((_, tx, tz, _)) = snapshot.iter().enumerate().find_map(|(j, s)| {
-                    if j != i && s.0 != team && !s.3 {
-                        Some(s)
-                    } else {
-                        None
-                    }
-                }) {
-                    let dx = *tx - sx;
-                    let dz = *tz - sz;
-                    if dx.abs() > 50.0 {
-                        if dx > 0.0 { ac.keypress("right"); } else { ac.keypress("left"); }
-                    }
-                    if dz.abs() > 10.0 {
-                        if dz > 0.0 { ac.keypress("down"); } else { ac.keypress("up"); }
-                    }
-                    if dx.abs() < 70.0 && dz.abs() < 18.0 {
-                        ac.keypress("att");
-                    } else if dx.abs() > 100.0 && time % 40 == 0 {
-                        ac.keypress("jump");
-                    }
-                    if time % 90 == 0 {
-                        ac.keypress("def");
-                    }
-                }
+                let my_team = ch.base.team;
+                let enemies: Vec<(u32, f64, f64, f64, i32)> = enemy_snap
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, e)| {
+                        *j < snapshot.len()
+                            && snapshot[*j].0 != my_team
+                            && !snapshot[*j].3
+                            && e.0 != ch.base.uid
+                    })
+                    .map(|(_, e)| *e)
+                    .collect();
+                crate::lf::ai::ai_fill(&mut self.ai_brains[i], &ch.base, &enemies, &mut ac, time);
                 ch.tu(Some(&ac), bg_z, bg_w);
             } else if let Some(ci) = ch.base.controller_index {
                 ch.tu(ctrls.get(ci), bg_z, bg_w);
@@ -175,6 +189,14 @@ impl Match {
             }
         }
         drop(ctrls);
+
+        // frame sounds
+        for ch in &mut self.characters {
+            if let Some(path) = ch.base.take_sound() {
+                self.sound.play(&path);
+            }
+        }
+        self.sound.tu();
 
         for w in &mut self.weapons {
             w.tu(bg_z, bg_w);
@@ -196,6 +218,7 @@ impl Match {
 
         self.process_hits();
         self.process_catches();
+        self.process_throws();
         self.special_hits();
         self.spawn_opoints();
         self.pick_weapons();
@@ -205,7 +228,7 @@ impl Match {
 
     fn process_hits(&mut self) {
         let n = self.characters.len();
-        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32)> = vec![];
+        let mut events: Vec<(usize, usize, f64, f64, f64, f64, i32, i32)> = vec![];
 
         for i in 0..n {
             if self.characters[i].base.removed || self.characters[i].base.arest > 0 {
@@ -254,14 +277,14 @@ impl Match {
                         if vol.intersects(b) {
                             let injury = if itr.injury != 0.0 { itr.injury } else { 20.0 };
                             let fall = if itr.fall != 0.0 { itr.fall } else { global::DEFAULT_FALL };
-                            events.push((i, j, injury, fall, vol.vx, itr.dvy, itr.arest));
+                            events.push((i, j, injury, fall, vol.vx, itr.dvy, itr.arest, itr.effect));
                         }
                     }
                 }
             }
         }
 
-        for (i, j, injury, fall, dvx, dvy, arest) in events {
+        for (i, j, injury, fall, dvx, dvy, arest, eff) in events {
             let facing = self.characters[i].base.facing;
             self.characters[i].base.arest = if arest > 0 { arest } else { global::DEFAULT_AREST };
             let vid = self.characters[j].base.uid;
@@ -296,11 +319,21 @@ impl Match {
                 self.characters[j].base.ps.y - 40.0,
                 self.characters[j].base.ps.z,
             );
-            if let Some(data) = self.package_objects.get(&301).cloned() {
-                let mut eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
-                self.next_uid += 1;
-                self.effects.push(eo);
+            let eid = crate::lf::effect::effect_id_from_num(0); // blood default; itr effect applied below
+            // prefer 301 blood, 300 blast
+            let mut try_ids = vec![301i32, 300];
+            if eff > 0 {
+                try_ids.insert(0, crate::lf::effect::effect_id_from_num(eff));
             }
+            for try_id in try_ids {
+                if let Some(data) = self.package_objects.get(&try_id).cloned() {
+                    let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, bx, by, bz);
+                    self.next_uid += 1;
+                    self.effects.push(eo);
+                    break;
+                }
+            }
+            let _ = eid;
         }
     }
 
@@ -376,6 +409,47 @@ impl Match {
         }
     }
 
+
+    fn process_throws(&mut self) {
+        let ctrls = self.controllers.borrow();
+        let mut releases: Vec<(u32, u32, f64, f64, f64)> = vec![]; // catcher, victim, vx,vy,vz
+        for ch in &self.characters {
+            if ch.base.removed { continue; }
+            let Some(vid) = ch.base.holding_uid else { continue };
+            // throw frames 121-122 or att while catching
+            let throwing = matches!(ch.base.frame.n, 121 | 122 | 123 | 124 | 125)
+                || (ch.base.state() == 9 && ch.base.controller_index.and_then(|i| ctrls.get(i)).map(|c| c.is_pressed("att")).unwrap_or(false));
+            if !throwing { continue; }
+            if let Some(fd) = ch.base.frame_data() {
+                if let Some(cp) = &fd.cpoint {
+                    let vx = if cp.throwvx != 0.0 { cp.throwvx * ch.base.facing as f64 } else { 12.0 * ch.base.facing as f64 };
+                    let vy = if cp.throwvy != 0.0 { cp.throwvy } else { -8.0 };
+                    let vz = cp.throwvz;
+                    releases.push((ch.base.uid, vid, vx, vy, vz));
+                    if cp.throwinjury > 0.0 {
+                        // applied below
+                    }
+                } else {
+                    releases.push((ch.base.uid, vid, 12.0 * ch.base.facing as f64, -8.0, 0.0));
+                }
+            }
+        }
+        drop(ctrls);
+        for (cuid, vid, vx, vy, vz) in releases {
+            if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == cuid) {
+                ch.base.holding_uid = None;
+            }
+            if let Some(vic) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                vic.base.held_by = None;
+                vic.base.ps.vx = vx;
+                vic.base.ps.vy = vy;
+                vic.base.ps.vz = vz;
+                vic.base.trans_frame(180, 15); // fall
+                vic.base.hp -= 10.0;
+            }
+        }
+    }
+
     fn special_hits(&mut self) {
         // specials hit characters
         let mut events = vec![];
@@ -411,16 +485,23 @@ impl Match {
 
     fn spawn_opoints(&mut self) {
         let mut spawns = vec![];
+        let mut spawned_uids = vec![];
         for ch in &self.characters {
             if let Some(fd) = ch.base.frame_data() {
                 if let Some(op) = &fd.opoint {
                     // spawn on first TU of frame (wait == original wait)
-                    if ch.base.frame.wait_left == fd.wait && op.oid != 0 && fd.wait > 0 {
+                    if !ch.base.opoint_spawned && ch.base.frame.wait_left == fd.wait && op.oid != 0 {
                         let x = ch.base.ps.x + (op.x - fd.centerx) * ch.base.facing as f64;
                         let y = ch.base.ps.y + (op.y - fd.centery);
                         spawns.push((op.oid, ch.base.team, x, y, ch.base.ps.z, ch.base.facing, op.action));
+                        spawned_uids.push(ch.base.uid);
                     }
                 }
+            }
+        }
+        for uid in spawned_uids {
+            if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == uid) {
+                ch.base.opoint_spawned = true;
             }
         }
         for (oid, team, x, y, z, facing, action) in spawns {

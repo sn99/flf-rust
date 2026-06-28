@@ -80,6 +80,8 @@ pub struct LivingObject {
     pub injury_total: f64,
     pub kills: i32,
     pub enter_frame_applied: bool,
+    pub opoint_spawned: bool,
+    pub frame_sound: String,
 }
 
 impl LivingObject {
@@ -122,6 +124,8 @@ impl LivingObject {
             injury_total: 0.0,
             kills: 0,
             enter_frame_applied: false,
+            opoint_spawned: false,
+            frame_sound: String::new(),
         };
         lo.trans_frame(0, 0);
         lo
@@ -158,7 +162,9 @@ impl LivingObject {
         self.frame.lock = lock;
         self.sp.pic = fd.pic;
         self.enter_frame_applied = false;
+        self.opoint_spawned = false;
         self.statemem_frame_tu = true;
+        self.frame_sound = fd.sound.clone();
         // apply frame force once on entry (dvx/dvy/dvz)
         self.apply_frame_force(&fd);
         self.enter_frame_applied = true;
@@ -201,6 +207,16 @@ impl LivingObject {
             } else {
                 self.ps.vy += fd.dvy;
             }
+        }
+    }
+
+    pub fn take_sound(&mut self) -> Option<String> {
+        if self.frame_sound.is_empty() {
+            None
+        } else {
+            let s = self.frame_sound.clone();
+            self.frame_sound.clear();
+            Some(s)
         }
     }
 
