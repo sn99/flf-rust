@@ -92,6 +92,7 @@ impl Manager {
         }
         let controllers = Rc::new(RefCell::new(controllers));
         Controller::bind_global(controllers.clone());
+        crate::core_engine::touch::mount_touch_hint();
 
         let slots = vec![
             SelectSlot {
