@@ -110,6 +110,7 @@ impl Character {
         }
         self.combo.tick();
         let state = self.base.state();
+        self.base.allow_switch_dir = matches!(state, 0 | 1 | 2 | 4 | 5 | 7);
 
         // state entry hooks
         match state {
@@ -753,8 +754,11 @@ impl Character {
                 }
             }
             3 => {
-                // attack state — id_update state3_frame on frame change
+                self.base.allow_switch_dir = false;
                 let _ = crate::lf::character_ids::id_update(self, "state3_frame", None);
+                if self.base.frame.n == 253 {
+                    let _ = crate::lf::character_ids::id_update(self, "state3_fly_crash", None);
+                }
             }
             15 => {
                 // crouch after jump: def→rowing, jump→dash variants
