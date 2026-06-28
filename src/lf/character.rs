@@ -206,6 +206,18 @@ impl Character {
                 if self.base.hp <= 0.0 && self.base.counter_dead_blink < 0 {
                     self.base.counter_dead_blink = 0;
                 }
+                // leaving lie → invuln blink (state_exit 14 in character.js)
+                // applied when next state != 14 via frame transition watch:
+                let next_st = self
+                    .base
+                    .frame_data()
+                    .and_then(|fd| self.base.data.frames.get(&fd.next).map(|f| f.state))
+                    .unwrap_or(14);
+                if next_st != 14 && self.base.trans.wait <= 1 {
+                    self.base.effect.blink = true;
+                    self.base.effect.super_armor = true;
+                    self.base.effect.timeout = 30;
+                }
             }
             15 => {
                 // stop_running / crouch / weapon throws

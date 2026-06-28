@@ -358,9 +358,12 @@ impl LivingObject {
         if self.mp < self.mp_full {
             self.mp = (self.mp + 1.0 / 3.0).min(self.mp_full);
         }
-        // effect timeout
+        // effect timein: delay before stuck applies (Davis hit_stop pattern)
         if self.effect.timein > 0 {
             self.effect.timein -= 1;
+            if self.effect.timein == 0 && self.effect.timeout > 0 {
+                self.effect.stuck = true;
+            }
         }
         if self.effect.timeout > 0 {
             self.effect.timeout -= 1;

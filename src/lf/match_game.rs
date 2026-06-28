@@ -386,15 +386,54 @@ impl Match {
                     self.characters[j].base.trans_frame(112, 12);
                 }
             }
+            // super armor absorbs without stun (still take reduced hp)
+            let armor = self.characters[j].base.effect.super_armor;
             let dvy_use = if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY };
             let mut inj2 = inj;
             if ikind == 8 {
                 // heal-type itr: negative injury heals
                 inj2 = -inj.abs().max(10.0);
             }
-            self.characters[j]
-                .base
-                .injure(inj2, if ikind == 8 { 0.0 } else { fall }, dvx, if ikind == 8 { 0.0 } else { dvy_use }, facing);
+            if armor && ikind != 8 {
+                self.characters[j].base.hp = (self.characters[j].base.hp - inj2 * 0.35).max(0.0);
+                self.characters[j].base.injury_total += inj2 * 0.35;
+            } else {
+                self.characters[j].base.injure(
+                    inj2,
+                    if ikind == 8 { 0.0 } else { fall },
+                    dvx,
+                    if ikind == 8 { 0.0 } else { dvy_use },
+                    facing,
+                );
+            }
+            // ice (kind 4) → frozen state 13 frames ~200
+            if ikind == 4 && !armor {
+                self.characters[j].base.trans_frame(200, 15);
+                self.characters[j].base.effect.stuck = true;
+                self.characters[j].base.effect.timeout = 40;
+                self.characters[j].base.ps.vx *= 0.3;
+            }
+            // fire (kind 3/5) → burn states 18/19
+            if (ikind == 3 || ikind == 5) && !armor {
+                let burn = if self.characters[j].base.ps.y < 0.0 { 19 } else { 18 };
+                // use frame that has that state if present, else 203-ish fire fall
+                if self.characters[j].base.data.frames.values().any(|f| f.state == burn) {
+                    // pick first frame with burn state
+                    let fr = self.characters[j]
+                        .base
+                        .data
+                        .frames
+                        .iter()
+                        .find(|(_, f)| f.state == burn)
+                        .map(|(k, _)| *k)
+                        .unwrap_or(203);
+                    self.characters[j].base.trans_frame(fr, 12);
+                } else {
+                    self.characters[j].base.trans_frame(203, 12);
+                }
+                self.characters[j].base.effect.blink = true;
+                self.characters[j].base.effect.timeout = 30;
+            }
             // blood effect id 301
             let (bx, by, bz) = (
                 self.characters[j].base.ps.x,
@@ -402,8 +441,14 @@ impl Match {
                 self.characters[j].base.ps.z,
             );
             let eid = crate::lf::effect::effect_id_from_num(0); // blood default; itr effect applied below
-            // prefer 301 blood, 300 blast
+            // prefer 301 blood, 300 blast; ice/fire prefer matching effect nums
             let mut try_ids = vec![301i32, 300];
+            if ikind == 4 {
+                try_ids.insert(0, 302);
+            }
+            if ikind == 3 || ikind == 5 {
+                try_ids.insert(0, 303);
+            }
             if eff > 0 {
                 try_ids.insert(0, crate::lf::effect::effect_id_from_num(eff));
             }
