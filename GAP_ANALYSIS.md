@@ -1,72 +1,65 @@
-# flf-rust vs Project-F/F.LF — completeness analysis
+# flf-rust vs Project-F/F.LF — full analysis
 
-**Date:** 2026-06-29  
 **Repos:** [sn99/flf-rust](https://github.com/sn99/flf-rust) · [Project-F/F.LF](https://github.com/Project-F/F.LF)  
-**Data (not engine):** [sn99/LF2_19](https://github.com/sn99/LF2_19) (used by both)
+**Data package (shared):** [sn99/LF2_19](https://github.com/sn99/LF2_19)
 
-## Executive verdict
+## Verdict (current)
 
 | Question | Answer |
 |----------|--------|
-| Is **Rust WASM alone** a complete **1-on-1** rewrite of F.LF? | **No** |
-| Is **flf-rust on GitHub Pages** a complete playable F.LF+LF2 experience? | **Yes** — via **`/game/game.html`** (hosts unmodified F.LF JS + LF2_19) |
-| Is Rust a **substantial** engine port? | **Yes** — combat, frames, UI shell, AI bridge, local lockstep |
+| Is **Rust WASM** complete **1-on-1** with F.LF source? | **NO** |
+| Does **flf-rust Pages** ship a complete playable F.LF+LF2 game? | **YES** → `/game/game.html` |
+| Is Rust a near-complete *engine* rewrite effort? | **YES** (~8–9k LOC, most systems present) |
 
-**1-on-1 means:** same behavior as F.LF JS for every module/TU edge case.  
-**Rust is not there.** **JS host path is.**
+**1-on-1** requires behavioral parity with F.LF JS for every module, including DOM sprites, F.Lobby PeerJS lockstep, full manager UX, full AIin, and proven TU identity. That is **not** met by Rust alone.
 
 ## Architecture
 
-```
-F.LF (JS)                          flf-rust
-─────────                          ────────
-RequireJS AMD                      wasm-bindgen crate
-LF/*.js + core/*.js                src/lf/*.rs + src/core_engine/*.rs
-sprite-dom OR canvas               canvas only
-PeerJS + F.Lobby lockstep          BroadcastChannel + optional PeerJS glue
-LF2_19 AI/*.js executed            ai_bridge.js runs scripts (partial AIin) + Rust fallback
-game/game.html                     game/game.html (JS) AND rust/ (WASM)
-```
+| | F.LF | flf-rust Rust path | flf-rust game path |
+|--|------|--------------------|--------------------|
+| Engine | RequireJS `LF/` + `core/` | `src/lf` + `src/core_engine` → WASM | Same F.LF JS as upstream |
+| Data | LF2_19 | LF2_19 / assets | LF2_19 absolute URLs |
+| Render | DOM or canvas | **Canvas only** | DOM/canvas as F.LF |
+| Net | PeerJS + F.Lobby | BroadcastChannel + PeerJS CDN glue | Full F.LF network |
+| AI | AIin + LF2_19/AI/*.js | ai_bridge + heuristics | Full F.LF AI |
 
-## Module map
+## Module parity (approx.)
 
-| F.LF | Rust | 1-on-1? |
-|------|------|---------|
-| livingobject.js | livingobject.rs | ~85% |
-| character.js | character.rs + character_ids.rs | ~75% |
-| weapon.js | weapon.rs | ~80% |
-| specialattack.js | specialattack.rs | ~75% |
-| match.js | match_game.rs (+ task queue) | ~80% |
-| manager.js | manager.rs | ~50% DOM |
-| AI.js + AI scripts | ai.rs + www/js/ai_bridge.js | ~40–60% |
-| network.js + core/network | network.rs + peer_glue.js | ~40% (no F.Lobby) |
-| effect + effects-pool | effect.rs, effects_pool.rs | ~70% |
-| soundpack / background / scene / mechanics | present | ~70–85% |
-| sprite-dom.js | — | **0%** (canvas only) |
-| controller-changer.js | settings rebind | ~30% |
-| controller-recorder.js | controller_recorder.rs | **added** (~60%) |
-| loader.js | package.rs | ~70% |
+| F.LF | Rust | Notes |
+|------|------|--------|
+| character.js | character + character_states + character_ids | State/event dispatch ~complete |
+| livingobject.js | livingobject.rs | Most methods + physics |
+| weapon / specialattack | + weapon_states / special_states | High |
+| match.js | match_game.rs | Task queue, create_object, combat, camera |
+| manager.js | manager.rs | Menus, rebind, maximize, F-keys, summary |
+| AI + scripts | ai.rs + ai_bridge.js | Partial AIin; scripts best-effort |
+| network | network.rs + peer_glue + Peer CDN | No F.Lobby protocol |
+| effect / effects-pool | effect + effects_pool | Good |
+| sprite-dom | — | **Missing** |
+| loader | package.rs + loader.rs alias | Good |
 
-## Implementation plan (this pass)
+## Plan executed (this continuity of work)
 
-1. Document gaps (this file).  
-2. Match **task queue** (`create_object` / `destroy` deferred like F.LF `tasks`).  
-3. **controller_recorder** module.  
-4. **peer_glue.js** for optional PeerJS.  
-5. AI script names per character id + existing bridge.  
-6. Build, deploy Pages, verify HTTP 200.
+1. Analysis (this file + PARITY_CHECKLIST).  
+2. Character event matrix (`character_states`).  
+3. Match tasks, APIs, combat fidelity, F6/F7, overlays.  
+4. AI package scripts + bridge.  
+5. Local lockstep + PeerJS optional load.  
+6. Manager maximize / pause / summary.  
+7. Deploy continuous on `main` + `gh-pages`.
 
-## Remaining for true Rust 1-on-1 (not claimed done)
+## Remaining for Rust answer = YES
 
-1. Full **PeerJS + F.Lobby** protocol (not only BroadcastChannel / optional Peer).  
-2. **sprite-dom** path or accept canvas-only forever.  
-3. Full **AIin.frame()** cache and match.scene APIs so every LF2 AI script is correct.  
-4. Every **character.js** state event (2086 LOC).  
-5. Full **manager** DOM (1893 LOC) including controller-changer tables.  
-6. Bit-identical TU ordering vs JS scheduler.
+1. sprite-dom **or** automated visual parity tests.  
+2. Full PeerJS **F.Lobby** lockstep (not only BC + optional Peer).  
+3. Complete AIin (frame cache, full match queries).  
+4. Manager pixel/DOM parity with all dialogs.  
+5. Regression suite vs F.LF TU dumps.
 
-## How to play “complete 1-on-1”
+Until then, answer remains **NO** for pure Rust.
 
-→ https://sn99.github.io/flf-rust/game/game.html  
+## Play complete 1-on-1 game
 
-Rust experiment → https://sn99.github.io/flf-rust/rust/
+https://sn99.github.io/flf-rust/game/game.html  
+
+Rust engine: https://sn99.github.io/flf-rust/rust/

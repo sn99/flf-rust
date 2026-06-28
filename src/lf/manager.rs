@@ -935,6 +935,20 @@ impl Manager {
             if let Some(m) = self.match_game.as_mut() {
                 self.renderer.clear("#000");
                 m.render(&mut self.renderer);
+                if m.game_over {
+                    if let Some(el) = util::qs(".summary_dialog") {
+                        let mut html = String::from("<table class='summary'><tr><th>Name</th><th>Kills</th><th>HP</th><th>Team</th></tr>");
+                        for ch in &m.characters {
+                            html.push_str(&format!(
+                                "<tr><td>{}</td><td>{}</td><td>{:.0}</td><td>{}</td></tr>",
+                                ch.base.name, ch.base.kills, ch.base.hp, ch.base.team
+                            ));
+                        }
+                        html.push_str("</table><p>Esc — menu</p>");
+                        el.set_inner_html(&html);
+                        let _ = el.set_attribute("style", "display:block");
+                    }
+                }
             }
         }
     }

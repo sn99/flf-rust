@@ -24,3 +24,5 @@ pub mod transistor;
 pub mod sprite;
 pub mod util_lf;
 pub mod touchcontroller;
+pub mod loader;
+pub mod util;

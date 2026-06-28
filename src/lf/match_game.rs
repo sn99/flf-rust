@@ -219,6 +219,20 @@ impl Match {
         self.paused = !self.paused;
     }
 
+    /// F.LF match.TU_trans — frame wait / transit only (subset; full TU does more)
+    pub fn tu_trans(&mut self) {
+        let bg_z = self.background.zboundary;
+        let bg_w = self.background.width;
+        for ch in &mut self.characters {
+            // only apply pending transistor when wait expired via physics partial
+            if ch.base.trans.wait == 0 {
+                let _ = ch.base.apply_transit();
+            }
+        }
+        let _ = (bg_z, bg_w);
+    }
+
+    /// Full TU — order approximates F.LF: controllers/AI → TU → interactions → tasks → camera
     pub fn tu(&mut self) {
         if self.paused || self.game_over {
             return;

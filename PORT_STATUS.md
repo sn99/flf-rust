@@ -1,19 +1,10 @@
-# Port status — full port effort
+# Port status
 
-## Is Rust 1-on-1 with F.LF? **Not 100% yet**
+**Rust alone ≠ 1-on-1 F.LF.** See [GAP_ANALYSIS.md](GAP_ANALYSIS.md) and [PARITY_CHECKLIST.md](PARITY_CHECKLIST.md).
 
-| Layer | Status |
-|-------|--------|
-| **character.js** | Event/state dispatch **complete** (`character_states.rs` + ids) |
-| **livingobject / match / weapons / specials** | High API + behavior coverage |
-| **manager** | Menus, rebind, maximize, F1–F7, network UI — not every DOM path |
-| **AI** | LF2 scripts via `ai_bridge.js` + heuristics |
-| **network** | BroadcastChannel lockstep + Peer glue — not full F.Lobby |
-| **sprite-dom** | Canvas only |
+| Entry | Complete? |
+|-------|-----------|
+| [game/game.html](https://sn99.github.io/flf-rust/game/game.html) | **Yes** (F.LF JS + LF2_19) |
+| [rust/](https://sn99.github.io/flf-rust/rust/) | Advanced port — **not** full 1-on-1 |
 
-## Play
-
-- **Complete F.LF game:** https://sn99.github.io/flf-rust/game/game.html (JS engine)
-- **Rust engine:** https://sn99.github.io/flf-rust/rust/
-
-See GAP_ANALYSIS.md and PARITY_CHECKLIST.md. Character.js priority **done**; remaining blockers for absolute 1:1 are PeerJS lobby, DOM sprites, manager DOM pixel parity, TU bit-identity tests.
+Rust highlights: character_states, combat, match tasks, AI bridge, BroadcastChannel lockstep, PeerJS CDN glue, manager UI, F1–F7.
