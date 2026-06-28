@@ -783,6 +783,7 @@ impl Match {
             // Rudolf: remember caught character id for transform
             self.characters[i].transform_caught_id = self.characters[j].base.id;
             self.characters[i].transform_target_uid = Some(self.characters[j].base.uid);
+            self.sound.play("1/021");
         }
         // sync caught position to catcher cpoint; apply cpoint injury once per catch TU
         let mut injuries: Vec<(u32, f64)> = vec![];
