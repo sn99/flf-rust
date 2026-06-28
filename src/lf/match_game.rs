@@ -927,6 +927,35 @@ impl Match {
         for (si, ci, inj, fall, dvx, dvy, eff, ikind) in events {
             let facing = self.specials[si].base.facing;
             let att_x = self.specials[si].base.ps.x;
+            // defend reduces special damage when facing the projectile
+            if self.characters[ci].base.state() == 7 {
+                let face_ball = (att_x > self.characters[ci].base.ps.x) == (self.characters[ci].base.facing < 0)
+                    || (att_x < self.characters[ci].base.ps.x) == (self.characters[ci].base.facing > 0);
+                // facing toward attacker x
+                let toward = (self.characters[ci].base.facing > 0 && att_x > self.characters[ci].base.ps.x)
+                    || (self.characters[ci].base.facing < 0 && att_x < self.characters[ci].base.ps.x);
+                if toward {
+                    self.characters[ci].base.bdefend += inj * 0.5;
+                    if self.characters[ci].base.bdefend < global::DEFEND_BREAK_LIMIT {
+                        self.specials[si].base.trans_frame(1000, 5);
+                        continue;
+                    }
+                }
+                let _ = face_ball;
+            }
+            if self.characters[ci].base.state() == 7 {
+                let toward = (self.characters[ci].base.facing > 0
+                    && att_x > self.characters[ci].base.ps.x)
+                    || (self.characters[ci].base.facing < 0
+                        && att_x < self.characters[ci].base.ps.x);
+                if toward {
+                    self.characters[ci].base.bdefend += inj * 0.5;
+                    if self.characters[ci].base.bdefend < global::DEFEND_BREAK_LIMIT {
+                        self.specials[si].base.trans_frame(1000, 5);
+                        continue;
+                    }
+                }
+            }
             let next_frame = self.specials[si]
                 .base
                 .frame_data()
