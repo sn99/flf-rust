@@ -48,13 +48,18 @@ impl Mech {
                 ps.x + frame.centerx - (it.x + it.w)
             };
             let iy = ps.z - frame.centery + it.y + ps.y;
+            let zw = if it.zwidth > 0.0 {
+                it.zwidth
+            } else {
+                global::DEFAULT_ITR_ZWIDTH
+            };
             let vol = Volume {
                 x: ix,
                 y: iy,
                 z: ps.z,
                 w: it.w,
                 h: it.h,
-                zwidth: it.zwidth,
+                zwidth: zw,
                 vx: it.dvx * facing as f64,
                 vy: it.dvy,
                 kind: it.kind,

@@ -905,7 +905,8 @@ impl Match {
             let Some(frame) = sp.base.frame_data().cloned() else { continue };
             let itrs = Mech::itr_volumes(&sp.base.ps, sp.base.facing, &frame);
             for (ci, ch) in self.characters.iter().enumerate() {
-                if ch.base.removed || ch.base.team == sp.base.team { continue; }
+                if ch.base.removed { continue; }
+                if sp.base.team != 0 && ch.base.team == sp.base.team { continue; }
                 let Some(vf) = ch.base.frame_data().cloned() else { continue };
                 let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, &vf);
                 for (vol, itr) in &itrs {
