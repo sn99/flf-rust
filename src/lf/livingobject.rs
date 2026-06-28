@@ -442,22 +442,38 @@ impl LivingObject {
         }
     }
 
-    /// LF livingobject.whirlwind_force — pull toward rect center-ish (attacker x/z)
-    pub fn whirlwind_force(&mut self, ax: f64, az: f64) {
-        let dx = ax - self.ps.x;
-        let dz = az - self.ps.z;
-        self.ps.x += dx.signum() * 3.5;
-        self.ps.z += dz.signum() * 1.8;
-        self.ps.vx *= 0.8;
-        self.ps.vz *= 0.8;
+    /// LF livingobject.whirlwind_force — centripetal toward volume center
+    pub fn whirlwind_force(&mut self, cx: f64, cz: f64) {
+        let mass = self.mech.mass.max(1.0);
+        self.ps.vy -= 2.0 / mass;
+        let sx = if self.ps.x - cx > 0.0 { 1.0 } else { -1.0 };
+        let sz = if self.ps.z - cz > 0.0 { 1.0 } else { -1.0 };
+        self.ps.vx -= sx * 2.0 / mass;
+        self.ps.vz -= sz * 0.5 / mass;
     }
 
-    /// LF livingobject.flute_force — oscillate / lift slightly
+    /// LF livingobject.flute_force — hover bands + super armor
     pub fn flute_force(&mut self) {
-        self.ps.vy -= 0.8;
-        self.ps.vx += if self.facing > 0 { 0.5 } else { -0.5 };
+        let mass = self.mech.mass.max(1.0);
+        let low_level = -140.0;
+        let mid_level = -160.0;
+        let high_level = -180.0;
+        self.effect.super_armor = true;
+        self.ps.vx = 0.0;
+        self.ps.vz = 0.0;
+        if self.ps.y > low_level {
+            self.ps.vy = if self.ps.vy <= 0.0 {
+                -7.5
+            } else {
+                -self.ps.vy / 2.0
+            };
+        } else if self.ps.y <= low_level && self.ps.y > mid_level {
+            self.ps.vy -= mass / 2.0;
+        } else if self.ps.y <= mid_level && self.ps.y > high_level {
+            self.ps.vy += mass / 2.0;
+        }
         self.effect.blink = true;
-        self.effect.timeout = self.effect.timeout.max(6);
+        self.effect.timeout = self.effect.timeout.max(8);
     }
 
     pub fn recover_tu(&mut self) {
@@ -485,9 +501,14 @@ impl LivingObject {
                 }
             }
         }
-        // slow mp regen
+        // slow mp regen (LF2 ~1/3 per TU on ground; slower in air)
         if self.mp < self.mp_full {
-            self.mp = (self.mp + 1.0 / 3.0).min(self.mp_full);
+            let rate = if self.ps.y >= 0.0 { 1.0 / 3.0 } else { 1.0 / 8.0 };
+            self.mp = (self.mp + rate).min(self.mp_full);
+        }
+        // passive hp drip only while dead-blink not active and not removed
+        if self.hp > 0.0 && self.hp < self.hp_full && self.counter_dead_blink < 0 && self.ps.y >= 0.0 {
+            // extremely slow passive — disabled by default; heal state handles real regen
         }
         // effect timein: delay before stuck applies (Davis hit_stop pattern)
         if self.effect.timein > 0 {

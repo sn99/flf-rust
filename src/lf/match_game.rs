@@ -314,6 +314,7 @@ impl Match {
         self.whirlwind_itr();
         self.itr_kind2_pick();
         self.burn_broken_fx();
+        self.bpoint_blood();
         self.weapon_hits();
         self.char_hits_specials();
         self.spawn_opoints();
@@ -701,12 +702,19 @@ impl Match {
                 if i == j || self.characters[j].base.removed { continue; }
                 if self.characters[i].base.team == self.characters[j].base.team && self.characters[i].base.team != 0 { continue; }
                 let Some(vframe) = self.characters[j].base.frame_data().cloned() else { continue };
-                // catch vulnerable incl. dance of pain (16); super catch kind 3 also uses 16
-                if !matches!(self.characters[j].base.state(), 0 | 1 | 8 | 11 | 12 | 16) { continue; }
-                // super catch (itr kind 3 on attacker) only enforced when victim is 16 — handled by allowing 16 always
+                let vstate = self.characters[j].base.state();
                 let bdys = Mech::body_volumes(&self.characters[j].base.ps, self.characters[j].base.facing, &vframe);
                 for (vol, itr) in &itrs {
-                    if itr.kind != 1 { continue; }
+                    // kind 1 normal catch; kind 3 super catch (dance of pain / special)
+                    if itr.kind != 1 && itr.kind != 3 {
+                        continue;
+                    }
+                    if itr.kind == 1 && !matches!(vstate, 0 | 1 | 8 | 11 | 12 | 16) {
+                        continue;
+                    }
+                    if itr.kind == 3 && vstate != 16 && vstate != 12 {
+                        continue;
+                    }
                     for b in &bdys {
                         if vol.intersects(b) {
                             let ca = itr.catchingact.first().copied().unwrap_or(120);
@@ -1383,6 +1391,41 @@ impl Match {
             self.characters[ci].base.holding_uid = Some(uid);
             self.characters[ci].base.hold_type = wtype;
             self.characters[ci].base.itr_arest_update(3);
+        }
+    }
+
+    /// bpoint on frames — spawn blood effect at bleeding point
+    fn bpoint_blood(&mut self) {
+        let mut pts = vec![];
+        for ch in &self.characters {
+            if ch.base.removed || !matches!(ch.base.state(), 11 | 12 | 16) {
+                continue;
+            }
+            let Some(fd) = ch.base.frame_data() else {
+                continue;
+            };
+            let Some((bx, by)) = fd.bpoint else {
+                continue;
+            };
+            if ch.base.frame.wait_left != fd.wait {
+                continue;
+            }
+            let x = if ch.base.facing >= 0 {
+                ch.base.ps.x - fd.centerx + bx
+            } else {
+                ch.base.ps.x + fd.centerx - bx
+            };
+            let y = ch.base.ps.y + (by - fd.centery);
+            pts.push((x, y, ch.base.ps.z));
+        }
+        for (x, y, z) in pts {
+            if !self.effects_pool.create(x, y, z, 0) {
+                if let Some(data) = self.package_objects.get(&301).cloned() {
+                    let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                    self.next_uid += 1;
+                    self.effects.push(eo);
+                }
+            }
         }
     }
 

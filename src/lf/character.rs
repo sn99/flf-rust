@@ -269,6 +269,13 @@ impl Character {
             }
             18 | 19 => {
                 // firen-specific handled in id_tu; generic burn drift
+                // land while burning → fall chain like state 12
+                if self.base.ps.y >= 0.0 && self.base.ps.vy >= 0.0 && self.base.frame.pn != 14 {
+                    // fall_onto_ground for burn delegates to fall frames
+                    if self.base.frame.n < 180 || self.base.frame.n > 191 {
+                        self.base.trans_frame(185, 15);
+                    }
+                }
             }
             301 => {
                 // deep specific — walking_speedz on TU in id_tu
