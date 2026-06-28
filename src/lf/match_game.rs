@@ -764,8 +764,14 @@ impl Match {
             ren.fill_rect_color(hpx, mpy, hpw, hph, "#1f086f");
             let mpct = (ch.base.mp / ch.base.mp_full).clamp(0.0, 1.0);
             ren.fill_rect_color(hpx, mpy, hpw * mpct, hph, "#0000ff");
-            ren.fill_text(&ch.base.name, x + 8.0, y + 48.0, "#afdcff", "11px sans-serif");
-            // small face would go at x+5 — use first sheet head if any
+            let head = &ch.base.data.bmp.head;
+            if !head.is_empty() {
+                // need mut ren - method is &self draw_panels - change to &mut self
+            }
+            if !ch.base.data.bmp.head.is_empty() {
+                ren.draw_image_scaled(&ch.base.data.bmp.head, x + 4.0, y + 8.0, 40.0, 40.0);
+            }
+            ren.fill_text(&ch.base.name, x + 48.0, y + 48.0, "#afdcff", "11px sans-serif");
         }
     }
 }
