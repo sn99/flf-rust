@@ -178,10 +178,10 @@ impl Match {
             })
             .collect();
 
-        let weapon_snap: Vec<(u32, f64, f64, bool)> = self
+        let weapon_snap: Vec<(u32, f64, f64, bool, bool)> = self
             .weapons
             .iter()
-            .map(|w| (w.base.uid, w.base.ps.x, w.base.ps.z, w.held || w.base.removed))
+            .map(|w| (w.base.uid, w.base.ps.x, w.base.ps.z, w.held || w.base.removed, w.base.obj_type == "drink"))
             .collect();
 
         let ctrls = self.controllers.borrow();

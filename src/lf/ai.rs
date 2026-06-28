@@ -28,7 +28,7 @@ pub fn ai_fill(
     brain: &mut AiBrain,
     self_obj: &LivingObject,
     enemies: &[(u32, f64, f64, f64, i32)],
-    weapons: &[(u32, f64, f64, bool)],
+    weapons: &[(u32, f64, f64, bool, bool)],
     holding_weapon: bool,
     ctrl: &mut Controller,
     time: u32,
@@ -50,13 +50,14 @@ pub fn ai_fill(
     if !holding_weapon {
         let mut best = None;
         let mut best_d = 120.0_f64;
-        for (uid, x, z, held) in weapons {
+        for (uid, x, z, held, is_drink) in weapons {
             if *held {
                 continue;
             }
             let d = (x - self_obj.ps.x).hypot(z - self_obj.ps.z);
-            if d < best_d {
-                best_d = d;
+            let score = d - (if *is_drink && self_obj.hp < self_obj.hp_full * 0.5 { 40.0 } else { 0.0 });
+            if score < best_d {
+                best_d = score;
                 best = Some((*uid, *x, *z));
             }
         }
