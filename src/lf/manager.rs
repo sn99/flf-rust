@@ -636,6 +636,17 @@ impl Manager {
                             if let Some(m) = g.match_game.as_mut() {
                                 m.toggle_pause();
                             }
+                        } else if key == "F2" {
+                            // F.LF F2: pause then single-step one TU
+                            if let Some(m) = g.match_game.as_mut() {
+                                if m.paused {
+                                    m.paused = false;
+                                    m.tu();
+                                    m.paused = true;
+                                } else {
+                                    m.paused = true;
+                                }
+                            }
                         } else if key == "F5" {
                             // LF2 F5 reset positions-ish: restart match
                             g.start_match();

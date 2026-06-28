@@ -574,6 +574,45 @@ impl Match {
             // weapon rebound
             self.weapons[wi].base.ps.vx *= -0.4;
             self.weapons[wi].base.ps.vy = -2.0;
+            // chance to break light weapons on hard hit
+            if self.weapons[wi].light && inj > 30.0 {
+                let (x, y, z) = (
+                    self.weapons[wi].base.ps.x,
+                    self.weapons[wi].base.ps.y,
+                    self.weapons[wi].base.ps.z,
+                );
+                self.weapons[wi].die();
+                self.spawn_broken(x, y, z);
+            }
+        }
+    }
+
+    fn spawn_broken(&mut self, x: f64, y: f64, z: f64) {
+        if let Some(data) = self.package_objects.get(&320).cloned() {
+            for i in 0..4 {
+                let mut w = crate::lf::weapon::Weapon::new(self.next_uid, data.clone(), x + i as f64 * 3.0, z);
+                self.next_uid += 1;
+                w.base.ps.y = y;
+                w.base.ps.vx = (i as f64 - 1.5) * 4.0;
+                w.base.ps.vy = -5.0 - i as f64;
+                w.base.trans_frame(0, 0);
+                // use special as debris if weapon type wrong — use effect object
+            }
+        }
+        if let Some(data) = self.package_objects.get(&320).cloned() {
+            for i in 0..6 {
+                let mut eo = crate::lf::effect::EffectObj::new(
+                    self.next_uid,
+                    data.clone(),
+                    x + (i as f64 - 3.0) * 8.0,
+                    y,
+                    z,
+                );
+                self.next_uid += 1;
+                eo.base.ps.vx = (i as f64 - 3.0) * 2.0;
+                eo.base.ps.vy = -3.0;
+                self.effects.push(eo);
+            }
         }
     }
 
