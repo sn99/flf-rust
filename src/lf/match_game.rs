@@ -1896,6 +1896,15 @@ impl Match {
         self.panel_remap.insert(from_uid, to_uid.unwrap_or(from_uid));
     }
 
+    /// F.LF match.for_all on characters
+    pub fn for_all_characters<F: FnMut(&mut Character)>(&mut self, mut f: F) {
+        for ch in &mut self.characters {
+            if !ch.base.removed {
+                f(ch);
+            }
+        }
+    }
+
     pub fn F7_refill(&mut self) {
         for ch in &mut self.characters {
             ch.base.hp = ch.base.hp_full;
