@@ -1,4 +1,5 @@
-import init, { start_game, version } from '../pkg/flf.js';
+// Cache-bust WASM bundle after deploys (GitHub Pages CDN)
+import init, { start_game, version } from '../pkg/flf.js?v=20260628b';
 
 const loading = document.getElementById('loading');
 
