@@ -2,7 +2,7 @@
 
 | # | Requirement | Status |
 |---|-------------|--------|
-| 1 | All LF/character.js states & events | Partial (~75%) |
+| 1 | All LF/character.js states & events | **Dispatch complete** (~95%; edge polish remains) |
 | 2 | All livingobject.prototype methods | Partial (~90% APIs named) |
 | 3 | match.js public API | Partial (~85% methods exist) |
 | 4 | manager.js full DOM UX | Partial (~50%) |
