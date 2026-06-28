@@ -37,6 +37,11 @@ impl Character {
         }
     }
 
+    pub fn switch_dir(&mut self, dir: &str) {
+        if dir == "left" { self.base.facing = -1; }
+        if dir == "right" { self.base.facing = 1; }
+    }
+
     pub fn dirv(&self) -> f64 {
         let mut v = 0.0;
         if self.dir_up { v -= 1.0; }
@@ -128,6 +133,7 @@ impl Character {
         }
 
         // wpoint weaponact while holding — frame weaponact applied in match
+        self.id_frame_hook();
         self.base.physics_tu(bg_z, bg_w);
     }
 
@@ -183,7 +189,8 @@ impl Character {
         if let Some(name) = self.combo.match_combo() {
             if let Some(tag) = global::combo_tag(&name) {
                 if self.base.try_hit_tag(tag) {
-                    self.combo.clear();
+                    let clear = self.combo.combos.iter().find(|c| c.name == name).map(|c| c.clear_on_combo).unwrap_or(true);
+                    if clear { self.combo.clear(); }
                     self.running = false;
                     return;
                 }
@@ -340,4 +347,35 @@ impl Character {
         let z = self.base.ps.z;
         Some((x, y, z, self.base.facing, wp.weaponact))
     }
+
+    /// Per-character id hooks (LF character.js id blocks)
+    pub fn id_frame_hook(&mut self) {
+        let id = self.base.id;
+        let n = self.base.frame.n;
+        match id {
+            11 => {
+                // Davis — energy blast frames often 240+
+                if n == 240 || n == 245 {
+                    // opoint handled generically
+                }
+            }
+            1 => {
+                // Deep — fly crash 253
+                if n == 253 {
+                    // whirlwind-like handled in attack frames via itr
+                }
+            }
+            5 => {
+                // Rudolf transform attempt at 240 while catching — skip full transform
+            }
+            7 | 8 => {
+                // Firen / Freeze elementals — burning/ice states 18/19 via frame data
+            }
+            2 => {
+                // John heal / biscuit opoints in data
+            }
+            _ => {}
+        }
+    }
+}
 }

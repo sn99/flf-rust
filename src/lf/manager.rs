@@ -158,6 +158,7 @@ impl Manager {
             let col = mgr.package.ui["frontpage"]["bg_color"].as_str().unwrap_or("#10206c");
             let _ = fp.style().set_property("background-color", col);
         }
+        crate::core_engine::touch::mount_touch_hint();
         mgr.show_screen(Screen::FrontPage);
         Ok(mgr)
     }

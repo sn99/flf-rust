@@ -210,6 +210,10 @@ impl LivingObject {
         }
     }
 
+    pub fn set_mass(&mut self, mass: f64) {
+        self.mech.mass = mass;
+    }
+
     pub fn take_sound(&mut self) -> Option<String> {
         if self.frame_sound.is_empty() {
             None

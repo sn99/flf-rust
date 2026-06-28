@@ -36,6 +36,7 @@ pub struct Match {
     package_objects: std::collections::HashMap<i32, ObjectData>,
     pub sound: crate::lf::soundpack::Soundpack,
     pub ai_brains: Vec<crate::lf::ai::AiBrain>,
+    pub properties: Value,
     pub ui_panel: Option<Value>,
     pub winner_team: Option<i32>,
 }
@@ -97,6 +98,12 @@ impl Match {
             }
         }
 
+        for ch in &mut characters {
+            let id = ch.base.id.to_string();
+            if let Some(mass) = package.properties.get(&id).and_then(|p| p.get("mass")).and_then(|m| m.as_f64()) {
+                ch.base.set_mass(mass);
+            }
+        }
         let ai_brains = characters.iter().map(|c| {
                 if c.base.ai { crate::lf::ai::AiBrain::default() } else { crate::lf::ai::AiBrain::default() }
             }).collect();
@@ -122,6 +129,7 @@ impl Match {
                 s
             },
             ai_brains,
+            properties: package.properties.clone(),
             ui_panel: package.ui.get("panel").cloned(),
             winner_team: None,
         })
@@ -223,6 +231,7 @@ impl Match {
         self.process_catches();
         self.process_throws();
         self.special_hits();
+        self.weapon_hits();
         self.spawn_opoints();
         self.pick_weapons();
         self.update_camera();
@@ -487,6 +496,40 @@ impl Match {
         }
     }
 
+
+    fn weapon_hits(&mut self) {
+        let mut ev = vec![];
+        for (wi, w) in self.weapons.iter().enumerate() {
+            if w.held || w.base.removed { continue; }
+            // only when moving fast in air / thrown
+            let spd = (w.base.ps.vx*w.base.ps.vx + w.base.ps.vy*w.base.ps.vy).sqrt();
+            if spd < 3.0 && w.base.ps.y >= 0.0 { continue; }
+            let Some(frame) = w.base.frame_data().cloned() else { continue };
+            let itrs = Mech::itr_volumes(&w.base.ps, w.base.facing, &frame);
+            for (ci, ch) in self.characters.iter().enumerate() {
+                if ch.base.removed { continue; }
+                if w.base.team != 0 && w.base.team == ch.base.team { continue; }
+                let Some(vf) = ch.base.frame_data().cloned() else { continue };
+                let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, &vf);
+                for (vol, itr) in &itrs {
+                    if itr.kind != 0 && itr.kind != 3 { continue; }
+                    for b in &bdys {
+                        if vol.intersects(b) {
+                            ev.push((wi, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy));
+                        }
+                    }
+                }
+            }
+        }
+        for (wi, ci, inj, fall, dvx, dvy) in ev {
+            let facing = self.weapons[wi].base.facing;
+            self.characters[ci].base.injure(inj, fall, dvx, if dvy != 0.0 { dvy } else { -4.0 }, facing);
+            // weapon rebound
+            self.weapons[wi].base.ps.vx *= -0.4;
+            self.weapons[wi].base.ps.vy = -2.0;
+        }
+    }
+
     fn spawn_opoints(&mut self) {
         let mut spawns = vec![];
         let mut spawned_uids = vec![];
@@ -725,12 +768,16 @@ impl Match {
             ren.fill_rect_color(200.0, 150.0, 400.0, 100.0, "rgba(0,0,0,0.75)");
             ren.fill_text("GAME OVER", 300.0, 195.0, "#ff0", "bold 32px sans-serif");
             if let Some(t) = self.winner_team {
+                let names: Vec<_> = self.characters.iter()
+                    .filter(|c| c.base.team == t && !c.base.removed)
+                    .map(|c| c.base.name.as_str())
+                    .collect();
                 ren.fill_text(
-                    &format!("Team {} wins", t),
-                    320.0,
+                    &format!("Team {} wins — {}", t, names.join(", ")),
+                    260.0,
                     225.0,
                     "#fff",
-                    "18px sans-serif",
+                    "16px sans-serif",
                 );
             }
             ren.fill_text("Esc — menu", 340.0, 248.0, "#ccc", "14px sans-serif");

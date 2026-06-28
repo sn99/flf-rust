@@ -8,3 +8,5 @@ pub mod resourcemap;
 pub mod sprite;
 pub mod support;
 pub mod util;
+
+pub mod touch;
