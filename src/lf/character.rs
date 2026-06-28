@@ -36,6 +36,7 @@ pub struct Character {
     /// held weapon object id (for properties.js keys)
     pub hold_weapon_oid: i32,
     pub last_state: i32,
+    pub infinite_mp: bool,
 }
 
 impl Character {
@@ -69,6 +70,7 @@ impl Character {
             drink_sips: 0,
             hold_weapon_oid: 0,
             last_state: 0,
+            infinite_mp: false,
         }
     }
 
@@ -111,6 +113,7 @@ impl Character {
             return;
         }
         self.combo.tick();
+        self.base.skip_mp_cost = self.infinite_mp;
         let state = self.base.state();
         self.base.allow_switch_dir = matches!(state, 0 | 1 | 4 | 7); // 2 run 5 dash lock facing (F.LF states_switch_dir)
 

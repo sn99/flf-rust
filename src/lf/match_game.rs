@@ -63,6 +63,8 @@ pub struct Match {
     pub overlay_msg: String,
     pub overlay_ttl: i32,
     pub panel_remap: std::collections::HashMap<u32, u32>,
+    /// F.LF F6 infinite mp mode
+    pub f6_mode: bool,
 }
 
 impl Match {
@@ -180,6 +182,7 @@ impl Match {
             overlay_msg: String::new(),
             overlay_ttl: 0,
             panel_remap: std::collections::HashMap::new(),
+            f6_mode: false,
         })
     }
 
@@ -1934,6 +1937,12 @@ impl Match {
         if teams.len() <= 1 && self.time > 90 {
             self.game_over = true;
             self.winner_team = teams.into_iter().next();
+            let mut msg = "GAME OVER".to_string();
+            if let Some(w) = self.winner_team {
+                msg = format!("GAME OVER — team {} wins", w);
+            }
+            self.overlay_message(&msg);
+            self.overlay_ttl = 9999;
         }
     }
 

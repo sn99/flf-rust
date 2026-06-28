@@ -28,14 +28,18 @@ impl EffectObj {
 
     pub fn tu(&mut self, bg_z: (f64, f64), bg_w: f64) {
         self.base.physics_tu(bg_z, bg_w);
-        // effects die on next 1000 or removed
-        if self.base.frame.wait_left == 0 {
-            if let Some(fd) = self.base.frame_data() {
-                if fd.next == 1000 || fd.next == 0 && self.base.frame.n > 0 {
-                    // natural end via physics
-                }
+        if self.base.frame.n >= 1000 {
+            self.base.removed = true;
+            self.base.dead = true;
+            return;
+        }
+        if let Some(fd) = self.base.frame_data().cloned() {
+            if fd.next == 1000 && self.base.trans.wait == 0 {
+                self.base.removed = true;
+                self.base.dead = true;
             }
         }
+        let _ = (bg_z, bg_w);
     }
 }
 

@@ -91,6 +91,7 @@ pub struct LivingObject {
     pub pending_broken_id: i32,
     pub pending_broken_num: i32,
     pub pending_vfx_num: i32,
+    pub skip_mp_cost: bool,
 }
 
 impl LivingObject {
@@ -140,6 +141,7 @@ impl LivingObject {
             pending_broken_id: 0,
             pending_broken_num: 0,
             pending_vfx_num: 0,
+            skip_mp_cost: false,
         };
         lo.trans_frame(0, 0);
         lo
@@ -357,7 +359,7 @@ impl LivingObject {
             return false;
         }
         // mp cost on specials
-        if fd.mp != 0 && !matches!(tag, "hit_a" | "hit_d" | "hit_j") {
+        if fd.mp != 0 && !matches!(tag, "hit_a" | "hit_d" | "hit_j") && !self.skip_mp_cost {
             let dmp = (fd.mp % 1000).abs();
             if self.mp < dmp as f64 {
                 return false;

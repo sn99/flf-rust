@@ -59,7 +59,9 @@ fn generic(ch: &mut Character, event: &str) {
                     if pn_next == ch.base.frame.n {
                         // transit by next of previous
                         if fd.mp < 0 {
+                            if !ch.infinite_mp {
                             ch.base.mp = (ch.base.mp + fd.mp as f64).max(0.0);
+                            }
                             if ch.base.mp <= 0.0 && fd.hit_d != 0 {
                                 ch.base.trans_frame(fd.hit_d, 10);
                             }
@@ -67,7 +69,7 @@ fn generic(ch: &mut Character, event: &str) {
                     } else {
                         let dmp = (fd.mp % 1000).abs() as f64;
                         let dhp = (fd.mp / 1000).abs() as f64 * 10.0;
-                        ch.base.mp = (ch.base.mp - dmp).max(0.0);
+                        if !ch.infinite_mp { ch.base.mp = (ch.base.mp - dmp).max(0.0); }
                         if dhp > 0.0 {
                             ch.base.hp = (ch.base.hp - dhp).max(0.0);
                         }

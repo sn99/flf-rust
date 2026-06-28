@@ -804,11 +804,15 @@ impl Manager {
                             // LF2 F5 reset positions-ish: restart match
                             g.start_match();
                         } else if key == "F6" {
-                            // infinite mp cheat lite
                             if let Some(m) = g.match_game.as_mut() {
+                                m.f6_mode = !m.f6_mode;
                                 for ch in &mut m.characters {
-                                    ch.base.mp = ch.base.mp_full;
+                                    ch.infinite_mp = m.f6_mode;
+                                    if m.f6_mode {
+                                        ch.base.mp = ch.base.mp_full;
+                                    }
                                 }
+                                m.overlay_message(if m.f6_mode { "F6 infinite MP ON" } else { "F6 infinite MP OFF" });
                             }
                         } else if key == "F7" {
                             if let Some(m) = g.match_game.as_mut() {
