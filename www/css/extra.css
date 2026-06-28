@@ -1,0 +1,53 @@
+.menu_box {
+  display: inline-block;
+  margin-top: 120px;
+  padding: 12px 28px;
+  border: 2px solid rgba(120, 160, 220, 0.6);
+  border-radius: 16px;
+  background: rgba(0, 20, 60, 0.35);
+  color: #6af;
+  font-size: 22px;
+  line-height: 1.6;
+  cursor: pointer;
+  text-align: center;
+}
+.menu_item:hover { color: #fff; }
+.char_select_inner, .settings_inner {
+  padding: 16px;
+  color: #eee;
+  background: #223;
+  min-height: 400px;
+  overflow: auto;
+}
+.slots { display: flex; gap: 16px; flex-wrap: wrap; }
+.slot { background: #334; padding: 12px; border-radius: 8px; min-width: 140px; }
+.bg_list { margin-top: 16px; }
+.bg_item { cursor: pointer; margin-right: 8px; color: #8cf; }
+.cs_help { margin-top: 12px; opacity: 0.8; }
+.gameplay .canvas {
+  display: block;
+  background: #000;
+}
+.frontpage_content { text-align: center; padding-top: 40px; }
+/* front page background image from LF2 UI if present */
+.frontpage {
+  background: #001a66 url('../assets/LF2_19/UI/frontpage.png') center/cover no-repeat;
+  min-height: 480px;
+  position: relative;
+}
+.character_selection {
+  background: #111 url('../assets/LF2_19/UI/character_selection.png') center/cover no-repeat;
+  min-height: 480px;
+}
+.settings {
+  background: #222 url('../assets/LF2_19/UI/settings.png') center/cover no-repeat;
+  min-height: 480px;
+}
+.LFroot .container.maximized {
+  position: fixed;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  z-index: 1000;
+}

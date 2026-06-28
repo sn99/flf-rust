@@ -1,0 +1,81 @@
+[package]
+name = "flf"
+version = "0.9.9"
+edition = "2021"
+description = "F.LF — open source LF2 engine rewritten in Rust (WASM)"
+license = "MIT"
+repository = "https://github.com/sn99/flf-rust"
+authors = ["sn99"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+futures = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
+rand = { version = "0.8", features = ["small_rng"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Window",
+  "Document",
+  "Element",
+  "HtmlElement",
+  "HtmlCanvasElement",
+  "HtmlImageElement",
+  "HtmlInputElement",
+  "HtmlSelectElement",
+  "HtmlTextAreaElement",
+  "HtmlButtonElement",
+  "HtmlCollection",
+  "CssStyleDeclaration",
+  "CanvasRenderingContext2d",
+  "CanvasWindingRule",
+  "DomRect",
+  "DomTokenList",
+  "Event",
+  "EventTarget",
+  "KeyboardEvent",
+  "MouseEvent",
+  "TouchEvent",
+  "TouchList",
+  "Touch",
+  "WheelEvent",
+  "Performance",
+  "Response",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Headers",
+  "Location",
+  "Storage",
+  "AudioContext",
+  "AudioBuffer",
+  "AudioBufferSourceNode",
+  "AudioDestinationNode",
+  "GainNode",
+  "Blob",
+  "Url",
+  "Node",
+  "NodeList",
+  "Text",
+  "DomStringMap",
+  "ImageBitmap",
+  "ImageData",
+  "Navigator",
+  "VisibilityState",
+]
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -1,0 +1,5 @@
+/target
+**/*.rs.bk
+Cargo.lock
+www/pkg/.gitignore
+# keep pkg built artifacts in repo for pages fallback? CI builds — ignore local target only

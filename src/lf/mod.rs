@@ -1,0 +1,17 @@
+pub mod global;
+pub mod package;
+pub mod manager;
+pub mod match_game;
+pub mod livingobject;
+pub mod character;
+pub mod weapon;
+pub mod specialattack;
+pub mod effect;
+pub mod background;
+pub mod scene;
+pub mod mechanics;
+pub mod ai;
+pub mod soundpack;
+pub mod network;
+pub mod factories;
+pub mod data;
