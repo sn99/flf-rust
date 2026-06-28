@@ -10,3 +10,4 @@ pub mod support;
 pub mod util;
 
 pub mod touch;
+pub mod controller_recorder;

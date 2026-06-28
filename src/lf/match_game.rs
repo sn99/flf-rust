@@ -13,6 +13,23 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Deferred work like F.LF match.tasks (create_object / destroy_object)
+#[derive(Clone, Debug)]
+pub enum MatchTask {
+    CreateObject {
+        oid: i32,
+        team: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+        facing: i32,
+        action: i32,
+        dvx: f64,
+        dvy: f64,
+    },
+    DestroyUid(u32),
+}
+
 pub struct PlayerSetup {
     pub id: i32,
     pub team: i32,
@@ -41,6 +58,7 @@ pub struct Match {
     pub ui_panel: Option<Value>,
     pub winner_team: Option<i32>,
     pub asset_root: String,
+    pub tasks: Vec<MatchTask>,
 }
 
 impl Match {
@@ -108,7 +126,15 @@ impl Match {
             }
         }
         let ai_brains = characters.iter().map(|c| {
-                if c.base.ai { crate::lf::ai::AiBrain::default() } else { crate::lf::ai::AiBrain::default() }
+                let mut b = crate::lf::ai::AiBrain::default();
+                // prefer named scripts by character id heuristics
+                b.script_name = match c.base.id {
+                    1 => "Crusher".into(),
+                    5 => "Ninja".into(),
+                    9 => "Challangar".into(),
+                    _ => "dumbass".into(),
+                };
+                b
             }).collect();
         let mut effects_pool = crate::lf::effects_pool::EffectsPool::new(64);
         // prefer blood 301 then 300 as pool template
@@ -145,6 +171,7 @@ impl Match {
             ui_panel: package.ui.get("panel").cloned(),
             winner_team: None,
             asset_root: package.root.clone(),
+            tasks: vec![],
         })
     }
 
@@ -372,6 +399,7 @@ impl Match {
         self.pick_weapons();
         self.flush_broken_effects();
         self.flush_visual_effects();
+        self.process_tasks();
         self.update_camera();
         self.check_game_over();
     }
@@ -1731,8 +1759,39 @@ impl Match {
     }
 
 
-    /// LF match.create_object(opoint, parent) — spawn special/effect/weapon from opoint-like params
+    /// Queue create (F.LF pushes task; applied in process_tasks same TU end)
     pub fn create_object(&mut self, oid: i32, team: i32, x: f64, y: f64, z: f64, facing: i32, action: i32, dvx: f64, dvy: f64) {
+        self.tasks.push(MatchTask::CreateObject { oid, team, x, y, z, facing, action, dvx, dvy });
+    }
+
+    pub fn destroy_object_uid(&mut self, uid: u32) {
+        self.tasks.push(MatchTask::DestroyUid(uid));
+    }
+
+    fn process_tasks(&mut self) {
+        let tasks = std::mem::take(&mut self.tasks);
+        for task in tasks {
+            match task {
+                MatchTask::CreateObject { oid, team, x, y, z, facing, action, dvx, dvy } => {
+                    self.spawn_object_now(oid, team, x, y, z, facing, action, dvx, dvy);
+                }
+                MatchTask::DestroyUid(uid) => {
+                    if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == uid) {
+                        ch.base.removed = true;
+                        ch.base.hp = 0.0;
+                    }
+                    if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == uid) {
+                        w.die();
+                    }
+                    if let Some(s) = self.specials.iter_mut().find(|s| s.base.uid == uid) {
+                        s.mark_die(1000);
+                    }
+                }
+            }
+        }
+    }
+
+    fn spawn_object_now(&mut self, oid: i32, team: i32, x: f64, y: f64, z: f64, facing: i32, action: i32, dvx: f64, dvy: f64) {
         if let Some(data) = self.package_objects.get(&oid).cloned() {
             let ty = data.obj_type.as_str();
             if ty == "lightweapon" || ty == "heavyweapon" || ty == "drink" {

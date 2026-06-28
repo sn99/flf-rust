@@ -1,60 +1,72 @@
-# F.LF + LF2_19 vs flf-rust — completeness analysis
+# flf-rust vs Project-F/F.LF — completeness analysis
 
-Sources:
-- https://github.com/Project-F/F.LF (engine)
-- https://github.com/sn99/LF2_19 (data package)
-- https://github.com/sn99/flf-rust (this port)
+**Date:** 2026-06-29  
+**Repos:** [sn99/flf-rust](https://github.com/sn99/flf-rust) · [Project-F/F.LF](https://github.com/Project-F/F.LF)  
+**Data (not engine):** [sn99/LF2_19](https://github.com/sn99/LF2_19) (used by both)
+
+## Executive verdict
+
+| Question | Answer |
+|----------|--------|
+| Is **Rust WASM alone** a complete **1-on-1** rewrite of F.LF? | **No** |
+| Is **flf-rust on GitHub Pages** a complete playable F.LF+LF2 experience? | **Yes** — via **`/game/game.html`** (hosts unmodified F.LF JS + LF2_19) |
+| Is Rust a **substantial** engine port? | **Yes** — combat, frames, UI shell, AI bridge, local lockstep |
+
+**1-on-1 means:** same behavior as F.LF JS for every module/TU edge case.  
+**Rust is not there.** **JS host path is.**
 
 ## Architecture
 
-| Layer | F.LF + LF2_19 | flf-rust |
-|-------|---------------|----------|
-| Engine | RequireJS AMD, `LF/*.js` + `core/*.js` (~9.2k LOC LF/) | Rust → WASM (`src/lf` + `src/core_engine` ~7.6k LOC) |
-| Data | LF2_19: `data/`, `sprite/`, `bg/`, `sound/`, `AI/`, `UI/`, `manifest.js` | Same assets loaded via `Package::load` (JSON/data.js) |
-| Render | DOM sprites (`sprite-dom`) **or** canvas | **Canvas only** |
-| Entry | `game/game.html` + require.js | `rust/index.html` + wasm-bindgen |
-| Multiplayer | PeerJS + `core/network` lockstep | BroadcastChannel + Peer hooks (not full lobby.projectf.hk) |
+```
+F.LF (JS)                          flf-rust
+─────────                          ────────
+RequireJS AMD                      wasm-bindgen crate
+LF/*.js + core/*.js                src/lf/*.rs + src/core_engine/*.rs
+sprite-dom OR canvas               canvas only
+PeerJS + F.Lobby lockstep          BroadcastChannel + optional PeerJS glue
+LF2_19 AI/*.js executed            ai_bridge.js runs scripts (partial AIin) + Rust fallback
+game/game.html                     game/game.html (JS) AND rust/ (WASM)
+```
 
-## Module mapping
+## Module map
 
-| F.LF module | Rust | Parity |
-|-------------|------|--------|
-| livingobject.js | livingobject.rs | High (physics, injure, transistor, forces) |
-| character.js | character.rs + character_ids.rs | High states; not every event branch |
-| weapon.js | weapon.rs | Medium-high |
-| specialattack.js | specialattack.rs | Medium-high |
-| match.js | match_game.rs | High combat; create_object naming differs |
-| manager.js | manager.rs | Medium (menus work; not pixel DOM) |
-| AI.js + LF2_19/AI/*.js | ai.rs heuristics | **Low** — scripts not executed |
-| network.js + core/network | network.rs | Medium — local lockstep only |
-| effect.js + effects-pool | effect.rs + effects_pool.rs | Medium-high |
-| soundpack.js | soundpack.rs | High |
-| background.js | background.rs | Medium |
-| scene.js | scene.rs | Medium (query subset) |
-| mechanics.js | mechanics.rs | High volumes |
-| sprite-dom.js | — | **Missing** (canvas only) |
-| controller-changer.js | partial settings rebind | Low-medium |
-| loader.js | package.rs | Medium |
+| F.LF | Rust | 1-on-1? |
+|------|------|---------|
+| livingobject.js | livingobject.rs | ~85% |
+| character.js | character.rs + character_ids.rs | ~75% |
+| weapon.js | weapon.rs | ~80% |
+| specialattack.js | specialattack.rs | ~75% |
+| match.js | match_game.rs (+ task queue) | ~80% |
+| manager.js | manager.rs | ~50% DOM |
+| AI.js + AI scripts | ai.rs + www/js/ai_bridge.js | ~40–60% |
+| network.js + core/network | network.rs + peer_glue.js | ~40% (no F.Lobby) |
+| effect + effects-pool | effect.rs, effects_pool.rs | ~70% |
+| soundpack / background / scene / mechanics | present | ~70–85% |
+| sprite-dom.js | — | **0%** (canvas only) |
+| controller-changer.js | settings rebind | ~30% |
+| controller-recorder.js | controller_recorder.rs | **added** (~60%) |
+| loader.js | package.rs | ~70% |
 
-## LF2_19 data
+## Implementation plan (this pass)
 
-Package is **content**, not engine. Rust loads the same manifest/data/sprites/sounds when `asset_root` points at LF2_19 (as on Pages). AI `.js` files are **executable scripts** in F.LF; Rust does not run them unless bridged to JS.
+1. Document gaps (this file).  
+2. Match **task queue** (`create_object` / `destroy` deferred like F.LF `tasks`).  
+3. **controller_recorder** module.  
+4. **peer_glue.js** for optional PeerJS.  
+5. AI script names per character id + existing bridge.  
+6. Build, deploy Pages, verify HTTP 200.
 
-## Verdict: **Not 1-on-1 complete** (Rust alone)
+## Remaining for true Rust 1-on-1 (not claimed done)
 
-| Criterion | Result |
-|-----------|--------|
-| Same assets (LF2_19) on Pages | Yes (game/ + rust assets) |
-| Same engine behavior line-by-line | **No** |
-| Full playable LF2 experience | **Yes via /game/game.html (JS F.LF)** |
-| Rust WASM alone = F.LF | **No** — advanced subset |
+1. Full **PeerJS + F.Lobby** protocol (not only BroadcastChannel / optional Peer).  
+2. **sprite-dom** path or accept canvas-only forever.  
+3. Full **AIin.frame()** cache and match.scene APIs so every LF2 AI script is correct.  
+4. Every **character.js** state event (2086 LOC).  
+5. Full **manager** DOM (1893 LOC) including controller-changer tables.  
+6. Bit-identical TU ordering vs JS scheduler.
 
-## Implementation plan (remaining)
+## How to play “complete 1-on-1”
 
-1. **AI script bridge** — fetch LF2_19/AI/*.js, run via JS `Function` with AIin/AIcon shims fed from WASM snapshots each AI TU.
-2. **Match API names** — `create_object`, `get_living_object`, `visualeffect_create` exposed for parity.
-3. **Network** — keep BroadcastChannel; document PeerJS glue; optional peerjs CDN in rust/index.
-4. **Manager** — maximize already partial; key table done; skip full controller-changer DOM unless time.
-5. **Sprite-DOM** — out of scope for WASM canvas path; document as intentional.
-6. **Verify** — build, deploy gh-pages, live 200.
+→ https://sn99.github.io/flf-rust/game/game.html  
 
+Rust experiment → https://sn99.github.io/flf-rust/rust/
