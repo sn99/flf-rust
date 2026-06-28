@@ -5,6 +5,7 @@ use crate::lf::global;
 use crate::lf::mechanics::Mech;
 use crate::lf::transistor::FrameTransistor;
 use std::collections::HashMap;
+use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Pos {
@@ -84,6 +85,8 @@ pub struct LivingObject {
     pub enter_frame_applied: bool,
     pub opoint_spawned: bool,
     pub frame_sound: String,
+    /// per-id properties from package (LF2 properties.js)
+    pub properties: Value,
 }
 
 impl LivingObject {
@@ -129,6 +132,7 @@ impl LivingObject {
             enter_frame_applied: false,
             opoint_spawned: false,
             frame_sound: String::new(),
+            properties: Value::Null,
         };
         lo.trans_frame(0, 0);
         lo
@@ -239,6 +243,22 @@ impl LivingObject {
     pub fn set_mass(&mut self, mass: f64) {
         self.mech.mass = mass;
     }
+
+    /// LF livingobject.proper(id?, prop)
+    pub fn proper(&self, prop: &str) -> Option<Value> {
+        let id = self.id.to_string();
+        self.properties
+            .get(&id)
+            .and_then(|o| o.get(prop))
+            .cloned()
+    }
+
+    pub fn proper_bool(&self, prop: &str) -> bool {
+        self.proper(prop)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
 
     pub fn take_sound(&mut self) -> Option<String> {
         if self.frame_sound.is_empty() {

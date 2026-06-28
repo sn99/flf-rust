@@ -99,6 +99,7 @@ impl Match {
         }
 
         for ch in &mut characters {
+            ch.base.properties = package.properties.clone();
             let id = ch.base.id.to_string();
             if let Some(mass) = package.properties.get(&id).and_then(|p| p.get("mass")).and_then(|m| m.as_f64()) {
                 ch.base.set_mass(mass);
@@ -267,6 +268,7 @@ impl Match {
         self.process_throws();
         self.special_hits();
         self.weapon_hits();
+        self.char_hits_specials();
         self.spawn_opoints();
         self.pick_weapons();
         self.update_camera();
@@ -516,7 +518,11 @@ impl Match {
                 let Some(vf) = ch.base.frame_data().cloned() else { continue };
                 let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, &vf);
                 for (vol, itr) in &itrs {
-                    if itr.kind != 0 { continue; }
+                    if itr.kind == 9 {
+                        // john shield etc depletes type3 instantly when applied TO special — handled inverse
+                        continue;
+                    }
+                    if itr.kind != 0 && itr.kind != 3 { continue; }
                     for b in &bdys {
                         if vol.intersects(b) {
                             events.push((si, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy));
@@ -568,6 +574,42 @@ impl Match {
             // weapon rebound
             self.weapons[wi].base.ps.vx *= -0.4;
             self.weapons[wi].base.ps.vy = -2.0;
+        }
+    }
+
+
+    fn char_hits_specials(&mut self) {
+        let mut kill = vec![];
+        for (ci, ch) in self.characters.iter().enumerate() {
+            if ch.base.removed || ch.base.arest > 0 { continue; }
+            let Some(frame) = ch.base.frame_data().cloned() else { continue };
+            let itrs = Mech::itr_volumes(&ch.base.ps, ch.base.facing, &frame);
+            for (si, sp) in self.specials.iter().enumerate() {
+                if sp.base.removed { continue; }
+                if sp.base.team == ch.base.team && ch.base.team != 0 { continue; }
+                let Some(sf) = sp.base.frame_data().cloned() else { continue };
+                let bdys = Mech::body_volumes(&sp.base.ps, sp.base.facing, &sf);
+                for (vol, itr) in &itrs {
+                    for b in &bdys {
+                        if !vol.intersects(b) { continue; }
+                        if itr.kind == 9 {
+                            kill.push(si);
+                        } else if itr.kind == 0 {
+                            // damage type3
+                            kill.push(si); // destroy ball on hit often
+                        }
+                    }
+                }
+            }
+            let _ = ci;
+        }
+        kill.sort_unstable();
+        kill.dedup();
+        for si in kill.into_iter().rev() {
+            if si < self.specials.len() {
+                self.specials[si].base.hp = 0.0;
+                self.specials[si].base.trans_frame(1000, 5);
+            }
         }
     }
 

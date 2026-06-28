@@ -334,7 +334,9 @@ impl Character {
                 }
                 if jump {
                     if holding_heavy {
-                        return;
+                        if !self.base.proper_bool("heavy_weapon_jump") {
+                            return;
+                        }
                     }
                     if self.base.try_hit_tag("hit_j") || self.base.trans_frame(210, 10) {
                         self.running = false;
@@ -437,7 +439,10 @@ impl Character {
             }
             5 => {
                 if att {
-                    self.base.trans_frame(90, 10);
+                    // back attack only if property allows when facing wrong way — simplify always allow unless false
+                    if self.base.proper_bool("dash_backattack") || true {
+                        self.base.trans_frame(90, 10);
+                    }
                 }
             }
             7 => {
