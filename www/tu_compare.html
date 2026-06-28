@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>F.LF TU dump compare</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 1.5rem; background: #0b1220; color: #dce6ff; }
+  h1 { font-size: 1.2rem; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+  label { display: block; margin-bottom: 0.25rem; color: #9ab; }
+  input[type=file] { color: #fff; }
+  pre { background: #121a2e; padding: 1rem; overflow: auto; max-height: 60vh; border-radius: 8px; }
+  .ok { color: #6f6; } .bad { color: #f66; }
+  button { padding: 0.4rem 0.8rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>TU identity compare (F.LF <code>game_state</code> dumps)</h1>
+<p>Dumps are JSON arrays of <code>{ time, "0": [x,y,z,hp,mp], ... }</code> matching F.LF <code>match.game_state()</code>.</p>
+<div class="row">
+  <div><label>Dump A (e.g. F.LF JS)</label><input type="file" id="a" accept="application/json,.json"></div>
+  <div><label>Dump B (e.g. flf-rust)</label><input type="file" id="b" accept="application/json,.json"></div>
+  <div><button id="go">Compare</button></div>
+</div>
+<p id="summary"></p>
+<pre id="out"></pre>
+<script src="js/tu_harness.js"></script>
+<script>
+async function readFile(inp) {
+  const f = inp.files[0];
+  if (!f) return null;
+  return JSON.parse(await f.text());
+}
+document.getElementById('go').onclick = async () => {
+  const a = await readFile(document.getElementById('a'));
+  const b = await readFile(document.getElementById('b'));
+  const sum = document.getElementById('summary');
+  const out = document.getElementById('out');
+  if (!a || !b) { sum.textContent = 'Pick both files'; return; }
+  const r = window.__flf_tu_compare(a, b);
+  sum.innerHTML = r.ok
+    ? '<span class="ok">OK — identical for ' + r.compared + ' frames</span>'
+    : '<span class="bad">MISMATCH — ' + r.mismatches.length + ' diffs (showing up to 20)</span>';
+  out.textContent = JSON.stringify(r, null, 2);
+};
+</script>
+</body>
+</html>

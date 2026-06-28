@@ -215,6 +215,26 @@ impl Match {
         })
     }
 
+    /// F.LF match.game_state — identity snapshot for lockstep verify / TU dumps
+    /// Shape: `{ time, "0": [x,y,z,hp,mp], "1": [...], ... }`
+    pub fn game_state(&self) -> serde_json::Value {
+        let mut d = serde_json::Map::new();
+        d.insert("time".into(), serde_json::json!(self.time));
+        for (i, c) in self.characters.iter().enumerate() {
+            d.insert(
+                i.to_string(),
+                serde_json::json!([
+                    c.base.ps.x as i32,
+                    c.base.ps.y as i32,
+                    c.base.ps.z as i32,
+                    c.base.hp as i32,
+                    c.base.mp as i32
+                ]),
+            );
+        }
+        serde_json::Value::Object(d)
+    }
+
     pub fn toggle_pause(&mut self) {
         self.paused = !self.paused;
     }

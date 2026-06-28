@@ -12,6 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use web_sys::{HtmlElement, KeyboardEvent, MouseEvent};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -609,8 +610,7 @@ impl Manager {
                     match i {
                         0 => g.show_screen(Screen::CharacterSelect),
                         1 => {
-                            g.network.append_log("Network lobby: use original F.LF for full multiplayer.");
-                            g.network.append_log("UI shell retained for parity.");
+                            g.network.append_log("Network: F.Lobby 0.1 protocol + Peer/BC lockstep.");
                             g.show_screen(Screen::Network);
                         }
                         2 => g.show_screen(Screen::Settings),
@@ -634,24 +634,78 @@ impl Manager {
                     walk = e.parent_element().and_then(|p| p.dyn_into().ok());
                 }
                 if is_connect {
-                    let addr = document()
+                    let mut addr = document()
                         .query_selector(".server_address")
                         .ok()
                         .flatten()
                         .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
                         .map(|i| i.value())
                         .unwrap_or_default();
+                    if addr.is_empty() {
+                        if let Some(sel) = document()
+                            .query_selector(".server_select")
+                            .ok()
+                            .flatten()
+                            .and_then(|e| e.dyn_into::<web_sys::HtmlSelectElement>().ok())
+                        {
+                            let v = sel.value();
+                            if v != "third_party_server" {
+                                addr = v;
+                            }
+                        }
+                    }
                     let server = if addr.is_empty() {
                         "http://lobby.projectf.hk".into()
                     } else {
                         addr
                     };
                     g.network.set_room_hint(&server);
-                    let role = if server.contains(":passive") || server.ends_with("/p") { "passive" } else { "active" };
+                    let role = if server.contains(":passive") || server.ends_with("/p") {
+                        "passive"
+                    } else {
+                        "active"
+                    };
                     let server = server.replace(":passive", "").replace("/p", "");
                     g.network.set_room_hint(&server);
+                    // F.Lobby client (JS) + lockstep transport
                     g.network.connect(&server, role);
                     g.render_network_dom();
+                }
+                // server_select third party prompt
+                let mut walk_sel = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                while let Some(e) = walk_sel {
+                    if e.class_list().contains("server_select") {
+                        if let Ok(sel) = e.dyn_into::<web_sys::HtmlSelectElement>() {
+                            if sel.value() == "third_party_server" {
+                                if let Some(win) = web_sys::window() {
+                                    if let Ok(Some(v)) = win.prompt_with_message_and_default(
+                                        "Enter F.Lobby server address:",
+                                        "http://localhost:8001",
+                                    ) {
+                                        if let Some(inp) = document()
+                                            .query_selector(".server_address")
+                                            .ok()
+                                            .flatten()
+                                            .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                        {
+                                            inp.set_value(&v);
+                                        }
+                                    }
+                                }
+                            } else if !sel.value().is_empty() {
+                                if let Some(inp) = document()
+                                    .query_selector(".server_address")
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                {
+                                    inp.set_value(&sel.value());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    walk_sel = e.parent_element().and_then(|p| p.dyn_into().ok());
                 }
                 let _ = el;
                 if let Some(bg) = data_bg.and_then(|s| s.parse().ok()) {
@@ -857,6 +911,35 @@ impl Manager {
             }
             closure.forget();
         }
+        // F.Lobby start callback from flobby.js → apply room/role on NetworkSession
+        {
+            let mgr2 = mgr.clone();
+            let on_start = Closure::wrap(Box::new(move |payload: JsValue| {
+                let s = payload.as_string().unwrap_or_default();
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                    let role = v["param"]["role"].as_str().unwrap_or("active");
+                    let room = v["param"]["room"]
+                        .as_str()
+                        .or_else(|| v["param"]["id1"].as_str())
+                        .unwrap_or("");
+                    let server = v["server"]["address"]
+                        .as_str()
+                        .or_else(|| v["server"].as_str())
+                        .unwrap_or("");
+                    let mut g = mgr2.borrow_mut();
+                    g.network.apply_lobby_start(server, role, room);
+                    g.render_network_dom();
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+            if let Some(win) = web_sys::window() {
+                let _ = js_sys::Reflect::set(
+                    &win,
+                    &"__flf_on_lobby_start".into(),
+                    on_start.as_ref().unchecked_ref(),
+                );
+            }
+            on_start.forget();
+        }
         mgr.borrow_mut().render_frontpage_dom();
         arm(mgr);
     }
@@ -919,6 +1002,21 @@ impl Manager {
                 }
                 if let Some(m) = self.match_game.as_mut() {
                     m.tu();
+                    // Expose F.LF-compatible game_state + TU harness record
+                    let gs = m.game_state();
+                    if let Some(win) = web_sys::window() {
+                        if let Ok(js) = js_sys::JSON::parse(&gs.to_string()) {
+                            let _ = js_sys::Reflect::set(&win, &"__flf_game_state".into(), &js);
+                        }
+                        if let Ok(rec) = js_sys::Reflect::get(&win, &"__flf_tu_record".into()) {
+                            if rec.is_function() {
+                                if let Ok(js) = js_sys::JSON::parse(&gs.to_string()) {
+                                    let args = js_sys::Array::of1(&js);
+                                    let _ = js_sys::Reflect::apply(&rec.into(), &win, &args);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             self.frames_counted += 1;

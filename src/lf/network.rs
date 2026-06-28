@@ -45,8 +45,8 @@ impl NetworkSession {
             active: false,
             role: String::new(),
             log: vec![
-                "Network: BroadcastChannel lockstep (two tabs, same room id).".into(),
-                "Optional PeerJS: define window.__flf_peer_connect / __flf_peer_send.".into(),
+                "Network: F.Lobby 0.1 (protocol + lobby iframe) → lockstep.".into(),
+                "Fallback: BroadcastChannel + PeerJS room id flf-{room}.".into(),
             ],
             server: "http://lobby.projectf.hk".into(),
             peers: 0,
@@ -78,6 +78,22 @@ impl NetworkSession {
         }
     }
 
+    /// Apply F.Lobby start payload from JS (`__flf_on_lobby_start`).
+    pub fn apply_lobby_start(&mut self, server_addr: &str, role: &str, room: &str) {
+        self.server = server_addr.to_string();
+        self.role = role.to_string();
+        if !room.is_empty() {
+            self.room_id = room.to_string();
+        }
+        self.is_host = role != "passive" && role != "remote";
+        self.append_log(&format!(
+            "F.Lobby start role={} room={} server={}",
+            role, self.room_id, server_addr
+        ));
+        // Activate lockstep transport (BC + peer) under lobby room id
+        self.connect_transport_only(server_addr, role);
+    }
+
     pub fn connect(&mut self, server: &str, role: &str) {
         Self::ensure_inbox();
         self.set_room_hint(server);
@@ -86,33 +102,60 @@ impl NetworkSession {
         self.active = true;
         self.is_host = role != "passive" && role != "remote";
         if self.room_id.is_empty() || !self.room_id.starts_with("room-") {
-            self.room_id = format!("room-{}", (js_sys::Date::now() as u64) % 1_000_000);
+            // keep non-room URLs as lobby address; room assigned after protocol
+            if server.contains("room-") {
+                self.room_id = server.to_string();
+            } else {
+                self.room_id = format!("room-{}", (js_sys::Date::now() as u64) % 1_000_000);
+            }
         }
         self.append_log(&format!("role={} room={} peer={}", role, self.room_id, self.local_peer_id));
 
+        // Prefer F.Lobby JS client (protocol + iframe)
+        if let Some(win) = web_sys::window() {
+            if let Ok(f) = js_sys::Reflect::get(&win, &"__flf_lobby_connect".into()) {
+                if f.is_function() {
+                    let args = js_sys::Array::of1(&JsValue::from_str(server));
+                    let _ = js_sys::Reflect::apply(&f.into(), &win, &args);
+                    self.append_log("F.Lobby __flf_lobby_connect invoked (protocol + iframe).");
+                }
+            }
+        }
+
+        self.connect_transport_only(server, role);
+    }
+
+    fn connect_transport_only(&mut self, server: &str, role: &str) {
+        Self::ensure_inbox();
+        self.active = true;
         let ch_name = format!("flf-lockstep-{}", self.room_id);
-        if let Ok(ch) = BroadcastChannel::new(&ch_name) {
-            let on_msg = Closure::wrap(Box::new(move |ev: MessageEvent| {
-                if let Ok(s) = js_sys::JSON::stringify(&ev.data()) {
-                    let s = s.as_string().unwrap_or_default();
-                    if let Some(win) = web_sys::window() {
-                        Self::ensure_inbox();
-                        if let Ok(inbox) = js_sys::Reflect::get(&win, &"__flf_net_inbox".into()) {
-                            if let Some(arr) = inbox.dyn_ref::<js_sys::Array>() {
-                                arr.push(&JsValue::from_str(&s));
+        if self.channel.is_none() {
+            if let Ok(ch) = BroadcastChannel::new(&ch_name) {
+                let on_msg = Closure::wrap(Box::new(move |ev: MessageEvent| {
+                    if let Ok(s) = js_sys::JSON::stringify(&ev.data()) {
+                        let s = s.as_string().unwrap_or_default();
+                        if let Some(win) = web_sys::window() {
+                            Self::ensure_inbox();
+                            if let Ok(inbox) = js_sys::Reflect::get(&win, &"__flf_net_inbox".into()) {
+                                if let Some(arr) = inbox.dyn_ref::<js_sys::Array>() {
+                                    arr.push(&JsValue::from_str(&s));
+                                }
                             }
                         }
                     }
-                }
-            }) as Box<dyn FnMut(_)>);
-            let _ = ch.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
-            self._on_msg = Some(on_msg);
-            self.channel = Some(ch);
-            self.peers = 2;
-            self.append_log(&format!("BroadcastChannel {} ready — open 2nd tab, connect passive, address={}", ch_name, self.room_id));
-        } else {
-            self.peers = 1;
-            self.append_log("BroadcastChannel unavailable.");
+                }) as Box<dyn FnMut(_)>);
+                let _ = ch.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
+                self._on_msg = Some(on_msg);
+                self.channel = Some(ch);
+                self.peers = 2;
+                self.append_log(&format!(
+                    "BroadcastChannel {} ready — 2nd tab: passive / address={}",
+                    ch_name, self.room_id
+                ));
+            } else {
+                self.peers = 1;
+                self.append_log("BroadcastChannel unavailable.");
+            }
         }
 
         if let Some(win) = web_sys::window() {
