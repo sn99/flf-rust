@@ -15,3 +15,4 @@ pub mod soundpack;
 pub mod network;
 pub mod factories;
 pub mod data;
+pub mod transistor;

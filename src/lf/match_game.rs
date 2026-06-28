@@ -191,7 +191,9 @@ impl Match {
                     })
                     .map(|(_, e)| *e)
                     .collect();
-                crate::lf::ai::ai_fill(&mut self.ai_brains[i], &ch.base, &enemies, &mut ac, time);
+                if time % 3 == 0 {
+                    crate::lf::ai::ai_fill(&mut self.ai_brains[i], &ch.base, &enemies, &mut ac, time);
+                }
                 ch.tu(Some(&ac), bg_z, bg_w);
             } else if let Some(ci) = ch.base.controller_index {
                 ch.tu(ctrls.get(ci), bg_z, bg_w);

@@ -3,6 +3,7 @@ use crate::core_engine::sprite::SpriteInstance;
 use crate::lf::data::{frame_hit_tag, FrameData, ObjectData};
 use crate::lf::global;
 use crate::lf::mechanics::Mech;
+use crate::lf::transistor::FrameTransistor;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -61,6 +62,7 @@ pub struct LivingObject {
     pub arest: i32,
     pub vrest: HashMap<u32, i32>,
     pub frame: FrameState,
+    pub trans: FrameTransistor,
     pub sp: SpriteInstance,
     pub mech: Mech,
     pub effect: EffectState,
@@ -105,6 +107,7 @@ impl LivingObject {
             arest: 0,
             vrest: HashMap::new(),
             frame: FrameState::default(),
+            trans: FrameTransistor::default(),
             sp: SpriteInstance { sheets, ..Default::default() },
             mech: Mech::new(None),
             effect: EffectState { num: -99, ..Default::default() },
@@ -143,11 +146,31 @@ impl LivingObject {
 
     /// Transition to frame with lock priority (F.LF trans.frame)
     pub fn trans_frame(&mut self, mut frame: i32, lock: i32) -> bool {
-        if lock < self.frame.lock {
-            return false;
+        // Use transistor authority
+        self.trans.frame(frame, lock);
+        // Apply immediately if wait was set to 0
+        if self.trans.wait == 0 {
+            return self.apply_transit();
+        }
+        // Also set next for when wait expires from set_wait with wait>0 via frame()
+        // frame() sets wait 0 so apply now:
+        self.apply_transit()
+    }
+
+    /// Apply pending transistor next frame (enter frame)
+    pub fn apply_transit(&mut self) -> bool {
+        let mut frame = self.trans.next;
+        if self.trans.switch_dir_after {
+            self.facing = -self.facing;
+            self.trans.switch_dir_after = false;
         }
         if frame == 999 {
             frame = 0;
+        }
+        if frame == 1000 {
+            self.removed = true;
+            self.dead = true;
+            return true;
         }
         if frame < 0 {
             return false;
@@ -159,15 +182,18 @@ impl LivingObject {
         self.frame.pn = prev;
         self.frame.n = frame;
         self.frame.wait_left = fd.wait;
-        self.frame.lock = lock;
+        self.frame.lock = self.trans.lock;
+        self.trans.wait = fd.wait;
+        self.trans.next = if fd.next == 999 { 0 } else { fd.next };
         self.sp.pic = fd.pic;
         self.enter_frame_applied = false;
         self.opoint_spawned = false;
         self.statemem_frame_tu = true;
         self.frame_sound = fd.sound.clone();
-        // apply frame force once on entry (dvx/dvy/dvz)
         self.apply_frame_force(&fd);
         self.enter_frame_applied = true;
+        // natural lock decay setup
+        self.trans.lockout = fd.wait.max(1);
         true
     }
 
@@ -406,25 +432,25 @@ impl LivingObject {
             self.ps.vz *= 0.0;
         }
 
-        // wait / next
-        if self.frame.wait_left > 0 {
-            self.frame.wait_left -= 1;
-        } else {
-            let next = self.frame_data().map(|f| f.next).unwrap_or(0);
-            if next == 1000 {
-                self.removed = true;
-                self.dead = true;
-            } else if next == 999 {
-                self.trans_frame(0, 0);
-                self.frame.lock = 0;
-            } else if next >= 0 {
-                let lock = self.frame.lock;
-                self.trans_frame(next, lock);
-                // reduce lock after natural transition
-                if self.frame.lock > 0 {
-                    self.frame.lock = (self.frame.lock - 1).max(0);
+        // wait / next via transistor (natural authority 0)
+        self.frame.wait_left = self.trans.wait;
+        if let Some(n) = self.trans.tick_wait() {
+            // natural transition uses lock 0 unless locked
+            if self.trans.lock == 0 || self.trans.lockout == 0 {
+                self.trans.next = n;
+                self.trans.lock = 0;
+                self.apply_transit();
+            } else {
+                // still locked — use stored next from frame data
+                let next = self.frame_data().map(|f| f.next).unwrap_or(0);
+                self.trans.set_next(next, 0);
+                if self.trans.wait == 0 {
+                    self.apply_transit();
                 }
             }
+        } else {
+            // sync wait_left
+            self.frame.wait_left = self.trans.wait;
         }
 
         // sync sprite world pos (render uses x,z and y lift)
