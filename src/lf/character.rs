@@ -378,4 +378,4 @@ impl Character {
         }
     }
 }
-}
+
