@@ -1,4 +1,5 @@
-import init, { start_game, version } from '../pkg/flf.js?v=20260628d';
+import init, { start_game, version } from '../pkg/flf.js?v=20260629b';
+// AI bridge loaded via script tag; ensure global exists
 
 const loading = document.getElementById('loading');
 const REMOTE = 'https://sn99.github.io/LF2_19';
@@ -54,6 +55,9 @@ try {
   const root = await resolvePackage();
   console.log('using package', root);
   if (loading) loading.textContent = 'Loading ' + root + ' …';
+  if (typeof window.__flf_ai_preload === 'function') {
+    window.__flf_ai_preload(root, ['dumbass', 'Challangar', 'Crusher', 'Ninja']);
+  }
   await start_game(root);
   if (loading) loading.remove();
 } catch (e) {

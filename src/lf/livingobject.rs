@@ -90,6 +90,7 @@ pub struct LivingObject {
     /// brokeneffect_create queue (id=320 fragments, effect_frame_id for anim)
     pub pending_broken_id: i32,
     pub pending_broken_num: i32,
+    pub pending_vfx_num: i32,
 }
 
 impl LivingObject {
@@ -138,6 +139,7 @@ impl LivingObject {
             properties: Value::Null,
             pending_broken_id: 0,
             pending_broken_num: 0,
+            pending_vfx_num: 0,
         };
         lo.trans_frame(0, 0);
         lo
@@ -275,6 +277,11 @@ impl LivingObject {
     }
 
     /// Request N broken fragments (match spawns id 320) — LF brokeneffect_create
+    /// Queue visual effect id (300+num) at body — match spawns
+    pub fn visualeffect_create(&mut self, num: i32) {
+        self.pending_vfx_num = num;
+    }
+
     pub fn request_broken(&mut self, effect_frame_id: i32, num: i32) {
         self.pending_broken_id = effect_frame_id;
         self.pending_broken_num = if num > 0 { num } else { 8 };

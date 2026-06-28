@@ -1,6 +1,8 @@
-//! AI — LF/AI.js AIin + AIcon patterns + improved heuristics (LF2_19 scripts are full JS; we mirror difficult-AI behavior)
+//! AI — LF/AI.js AIin patterns + LF2_19 script bridge (window.__flf_ai_run) + heuristics fallback
 use crate::core_engine::controller::Controller;
 use crate::lf::livingobject::LivingObject;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 
 pub struct AiBrain {
     pub cc: u32,
@@ -11,6 +13,9 @@ pub struct AiBrain {
     /// AIcon-style key buffer: (key, down)
     pub key_buf: Vec<(String, bool)>,
     pub difficulty: i8, // -1 crazy, 0 hard, 1 normal, 2 easy
+    /// LF2_19 AI script name (e.g. dumbass, Challangar, Crusher, Ninja)
+    pub script_name: String,
+    pub prefer_script: bool,
 }
 
 impl Default for AiBrain {
@@ -23,7 +28,83 @@ impl Default for AiBrain {
             weapon_uid: None,
             key_buf: vec![],
             difficulty: 0,
+            script_name: "dumbass".into(),
+            prefer_script: true,
         }
+    }
+}
+
+/// Build JSON snapshot for __flf_ai_run
+pub fn snapshot_json(
+    self_obj: &LivingObject,
+    hold_type: &str,
+    hold_oid: i32,
+    hold_uid: i32,
+    catch_counter: i32,
+    bg_w: f64,
+    bg_z0: f64,
+    bg_z1: f64,
+) -> String {
+    serde_json::json!({
+        "x": self_obj.ps.x,
+        "y": self_obj.ps.y,
+        "z": self_obj.ps.z,
+        "vx": self_obj.ps.vx,
+        "vy": self_obj.ps.vy,
+        "vz": self_obj.ps.vz,
+        "facing": self_obj.facing,
+        "hp": self_obj.hp,
+        "mp": self_obj.mp,
+        "fall": self_obj.fall,
+        "team": self_obj.team,
+        "id": self_obj.id,
+        "uid": self_obj.uid,
+        "state": self_obj.state(),
+        "frame": self_obj.frame.n,
+        "hold_type": hold_type,
+        "hold_oid": hold_oid,
+        "hold_uid": hold_uid,
+        "blink": self_obj.effect.blink,
+        "effect_timeout": self_obj.effect.timeout,
+        "catch_counter": catch_counter,
+        "bg_w": bg_w,
+        "bg_z": [bg_z0, bg_z1],
+    })
+    .to_string()
+}
+
+/// Try LF2 AI script via JS bridge; returns Some(keys) if bridge returned presses
+pub fn try_script_keys_sync(asset_root: &str, script: &str, self_json: &str, others_json: &str) -> Option<Vec<String>> {
+    let win = web_sys::window()?;
+    let runner = js_sys::Reflect::get(&win, &"__flf_ai_run".into()).ok()?;
+    if !runner.is_function() {
+        return None;
+    }
+    let args = js_sys::Array::of4(
+        &JsValue::from_str(asset_root),
+        &JsValue::from_str(script),
+        &JsValue::from_str(self_json),
+        &JsValue::from_str(others_json),
+    );
+    let ret = js_sys::Reflect::apply(&runner.into(), &win, &args).ok()?;
+    // may be Promise
+    if js_sys::Reflect::has(&ret, &"then".into()).unwrap_or(false) {
+        // can't block; return None and let heuristics run this TU
+        // fire-and-forget store on window for next TU — skip for determinism
+        let _ = ret;
+        return None;
+    }
+    let arr = ret.dyn_into::<js_sys::Array>().ok()?;
+    let mut keys = vec![];
+    for i in 0..arr.length() {
+        if let Some(s) = arr.get(i).as_string() {
+            keys.push(s);
+        }
+    }
+    if keys.is_empty() {
+        None
+    } else {
+        Some(keys)
     }
 }
 

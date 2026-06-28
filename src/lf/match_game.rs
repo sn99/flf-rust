@@ -40,6 +40,7 @@ pub struct Match {
     pub properties: Value,
     pub ui_panel: Option<Value>,
     pub winner_team: Option<i32>,
+    pub asset_root: String,
 }
 
 impl Match {
@@ -143,6 +144,7 @@ impl Match {
             properties: package.properties.clone(),
             ui_panel: package.ui.get("panel").cloned(),
             winner_team: None,
+            asset_root: package.root.clone(),
         })
     }
 
@@ -212,17 +214,61 @@ impl Match {
                 if time % 3 == 0 {
                     let hold_heavy = holding && ch.base.hold_type == "heavyweapon";
                     let hold_drink = holding && ch.base.hold_type == "drink";
-                    crate::lf::ai::ai_fill(
-                        &mut self.ai_brains[i],
-                        &ch.base,
-                        &enemies,
-                        &weapon_snap,
-                        holding,
-                        hold_heavy,
-                        hold_drink,
-                        &mut ac,
-                        time,
-                    );
+                    let hold_uid = ch.hold_weapon.map(|u| u as i32).unwrap_or(-1);
+                    let mut used_script = false;
+                    if self.ai_brains[i].prefer_script {
+                        let self_json = crate::lf::ai::snapshot_json(
+                            &ch.base,
+                            &ch.base.hold_type,
+                            ch.hold_weapon_oid,
+                            hold_uid,
+                            ch.catch_counter,
+                            self.background.width,
+                            bg_z.0,
+                            bg_z.1,
+                        );
+                        let others_json: Vec<serde_json::Value> = enemies
+                            .iter()
+                            .filter(|e| e.0 != ch.base.uid)
+                            .take(8)
+                            .map(|e| {
+                                serde_json::json!({
+                                    "x": e.1, "y": e.3, "z": e.2, "vx": 0, "vy": 0, "vz": 0,
+                                    "facing": 1, "hp": 500, "mp": 200, "fall": 0,
+                                    "team": 0, "id": 0, "uid": e.0, "state": e.4, "frame": 0,
+                                    "hold_type": "", "hold_oid": 0, "hold_uid": -1,
+                                    "blink": false, "effect_timeout": 0, "catch_counter": 0,
+                                    "bg_w": self.background.width, "bg_z": [bg_z.0, bg_z.1],
+                                })
+                            })
+                            .collect();
+                        let oj = serde_json::Value::Array(others_json).to_string();
+                        let script = self.ai_brains[i].script_name.clone();
+                        if let Some(keys) = crate::lf::ai::try_script_keys_sync(
+                            &self.asset_root,
+                            &script,
+                            &self_json,
+                            &oj,
+                        ) {
+                            for k in keys {
+                                ac.keypress(&k);
+                            }
+                            used_script = true;
+                        }
+                    }
+                    if !used_script {
+                        crate::lf::ai::ai_fill(
+                            &mut self.ai_brains[i],
+                            &ch.base,
+                            &enemies,
+                            &weapon_snap,
+                            holding,
+                            hold_heavy,
+                            hold_drink,
+                            &mut ac,
+                            time,
+                        );
+                    }
                 }
                 ch.tu(Some(&ac), bg_z, bg_w);
             } else if let Some(ci) = ch.base.controller_index {
@@ -325,8 +371,27 @@ impl Match {
         self.spawn_opoints();
         self.pick_weapons();
         self.flush_broken_effects();
+        self.flush_visual_effects();
         self.update_camera();
         self.check_game_over();
+    }
+
+    fn flush_visual_effects(&mut self) {
+        let mut pts = vec![];
+        for ch in &mut self.characters {
+            if ch.base.pending_vfx_num != 0 {
+                let n = ch.base.pending_vfx_num;
+                ch.base.pending_vfx_num = 0;
+                pts.push((ch.base.ps.x, ch.base.ps.y - 40.0, ch.base.ps.z, 300 + n));
+            }
+        }
+        for (x, y, z, oid) in pts {
+            if let Some(data) = self.package_objects.get(&oid).cloned().or_else(|| self.package_objects.get(&301).cloned()) {
+                let eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                self.next_uid += 1;
+                self.effects.push(eo);
+            }
+        }
     }
 
     /// Drain LO.pending_broken_* into 320 debris (brokeneffect_create)
@@ -1663,6 +1728,39 @@ impl Match {
                 }
             }
         }
+    }
+
+
+    /// LF match.create_object(opoint, parent) — spawn special/effect/weapon from opoint-like params
+    pub fn create_object(&mut self, oid: i32, team: i32, x: f64, y: f64, z: f64, facing: i32, action: i32, dvx: f64, dvy: f64) {
+        if let Some(data) = self.package_objects.get(&oid).cloned() {
+            let ty = data.obj_type.as_str();
+            if ty == "lightweapon" || ty == "heavyweapon" || ty == "drink" {
+                let mut w = crate::lf::weapon::Weapon::new(self.next_uid, data, x, z);
+                self.next_uid += 1;
+                w.base.ps.y = y;
+                w.base.team = team;
+                w.base.facing = facing;
+                w.base.ps.vx = dvx * facing as f64;
+                w.base.ps.vy = dvy;
+                self.weapons.push(w);
+            } else if oid >= 300 && oid < 400 {
+                let mut eo = crate::lf::effect::EffectObj::new(self.next_uid, data, x, y, z);
+                self.next_uid += 1;
+                if action != 0 { eo.base.trans_frame(action, 0); }
+                self.effects.push(eo);
+            } else {
+                let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing).with_velocity(dvx, dvy);
+                self.next_uid += 1;
+                if action != 0 { s.base.trans_frame(action, 0); }
+                self.specials.push(s);
+            }
+        }
+    }
+
+    /// LF match.get_living_object list of character uids still alive
+    pub fn get_living_object_uids(&self) -> Vec<u32> {
+        self.characters.iter().filter(|c| !c.base.removed && c.base.hp > 0.0).map(|c| c.base.uid).collect()
     }
 
     fn update_camera(&mut self) {
