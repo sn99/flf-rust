@@ -609,7 +609,12 @@ impl Character {
                 }
                 if att {
                     if holding_light {
-                        self.base.trans_frame(35, 10);
+                        // run_throw property on weapon
+                        if self.weapon_proper_bool("run_throw") {
+                            self.base.trans_frame(45, 10);
+                        } else {
+                            self.base.trans_frame(35, 10);
+                        }
                     } else if holding_heavy {
                         self.base.trans_frame(50, 10);
                     } else {
