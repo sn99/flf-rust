@@ -1,6 +1,6 @@
 //! Game manager — closer to LF/manager.js UX
 use crate::core_engine::controller::{self, Controller};
-use crate::core_engine::sprite::CanvasRenderer;
+use crate::core_engine::sprite::{CanvasRenderer, DomSpriteLayer, RendererKind};
 use crate::core_engine::support;
 use crate::core_engine::util::{self, document, hide, show};
 use crate::lf::global;
@@ -31,6 +31,8 @@ pub struct Manager {
     version: String,
     screen: Screen,
     renderer: CanvasRenderer,
+    dom_layer: Option<DomSpriteLayer>,
+    renderer_kind: RendererKind,
     controllers: Rc<RefCell<Vec<Controller>>>,
     match_game: Option<Match>,
     sound: Soundpack,
@@ -40,6 +42,8 @@ pub struct Manager {
     num_computers: i32,
     computer_cursor: i32,
     vs_cursor: usize,
+    /// -1 crazy, 0 hard, 1 normal, 2 easy (F.LF AI difficulty)
+    difficulty: i8,
     last_tick: f64,
     acc: f64,
     fps_display: f64,
@@ -138,11 +142,30 @@ impl Manager {
             }
         }
 
+        let params = crate::core_engine::util::location_parameters();
+        let renderer_kind = if params.get("renderer").map(|s| s.as_str()) == Some("dom") {
+            RendererKind::Dom
+        } else {
+            RendererKind::Canvas
+        };
+        let dom_layer = DomSpriteLayer::attach(".gameplay", &asset_root).ok();
+        if let Some(ref d) = dom_layer {
+            d.set_visible(renderer_kind == RendererKind::Dom);
+        }
+        if renderer_kind == RendererKind::Dom {
+            // keep canvas as bg fallback under DOM sprites
+            if let Some(c) = util::qs(".canvas") {
+                let _ = c.set_attribute("style", "opacity:1");
+            }
+        }
+
         let mut mgr = Self {
             package,
             version: version.to_string(),
             screen: Screen::FrontPage,
             renderer,
+            dom_layer,
+            renderer_kind,
             controllers,
             match_game: None,
             sound: Soundpack::new(),
@@ -152,6 +175,7 @@ impl Manager {
             num_computers: 0,
             computer_cursor: 0,
             vs_cursor: 0,
+            difficulty: 0,
             last_tick: js_sys::Date::now(),
             acc: 0.0,
             fps_display: 0.0,
@@ -167,7 +191,6 @@ impl Manager {
             let _ = fp.style().set_property("background-color", col);
         }
         crate::core_engine::touch::mount_touch_hint();
-        let params = crate::core_engine::util::location_parameters();
         if params.contains_key("demo") {
             // auto start with COMs
             mgr.num_computers = 2;
@@ -323,13 +346,19 @@ impl Manager {
 
     fn render_vs_dom(&self) {
         let root = &self.package.root;
+        let diff_label = match self.difficulty {
+            d if d < 0 => "CRAZY!",
+            0 => "difficult",
+            1 => "normal",
+            _ => "easy",
+        };
         let labels = [
-            "Vs mode start",
-            "Reset",
-            "Background → click list",
-            "Difficulty (unused)",
-            "Back",
-            "OK",
+            "Vs mode start".to_string(),
+            "Reset".into(),
+            "Background → click list".into(),
+            format!("Difficulty: {diff_label} (click)"),
+            "Back".into(),
+            "OK".into(),
         ];
         let mut html = format!(
             r#"<div class="cs_stage dim"><img class="cs_bg" src="{root}/UI/character_selection.png"/>
@@ -353,38 +382,62 @@ impl Manager {
     fn render_settings_dom(&self) {
         let root = &self.package.root;
         let ctrls = self.controllers.borrow();
+        // F.LF keychanger: rows = name, type, then each action; columns = players
+        let actions = ["up", "down", "left", "right", "def", "jump", "att"];
         let mut html = format!(
             r#"<div class="set_stage"><img src="{root}/UI/settings.png" class="set_bg" alt=""/>
-            <div class="set_table"><table><tr><th>action</th><th>P1</th><th>P2</th></tr>"#
+            <div class="keychanger"><table class="keychanger_table">"#
         );
-        let actions = ["up", "down", "left", "right", "def", "jump", "att"];
-        for a in actions {
-            let k0 = ctrls[0].config.get(a).cloned().unwrap_or_default();
-            let k1 = ctrls
-                .get(1)
-                .and_then(|c| c.config.get(a))
-                .cloned()
-                .unwrap_or_default();
+        // name row
+        html.push_str("<tr><td class='kc_left'>name</td>");
+        for (i, s) in self.slots.iter().enumerate() {
             html.push_str(&format!(
-                "<tr><td>{a}</td><td><kbd>{k0}</kbd></td><td><kbd>{k1}</kbd></td></tr>"
+                r#"<td class="kc_cell kc_name" data-pname="{i}">{pn}</td>"#,
+                pn = s.player_name
             ));
+        }
+        html.push_str("</tr><tr><td class='kc_left'>type</td>");
+        for i in 0..ctrls.len().min(2) {
+            html.push_str(&format!(
+                r#"<td class="kc_cell">keyboard</td>"#
+            ));
+            let _ = i;
+        }
+        html.push_str("</tr>");
+        for a in actions {
+            html.push_str(&format!("<tr><td class='kc_left'>{a}</td>"));
+            for pi in 0..2 {
+                let k = ctrls
+                    .get(pi)
+                    .and_then(|c| c.config.get(a))
+                    .cloned()
+                    .unwrap_or_else(|| "-".into());
+                html.push_str(&format!(
+                    r#"<td class="kc_cell kc_key" data-rebind="{pi}:{a}">{k}</td>"#
+                ));
+            }
+            html.push_str("</tr>");
         }
         html.push_str(
             r#"</table>
-            <p class="cs_hint">Click a key cell, then press a key to rebind. Esc/OK saves.</p>
-            <div class="keybind_row">Click to rebind:
-            <kbd data-rebind="0:up">P1 up</kbd> <kbd data-rebind="0:down">P1 down</kbd>
-            <kbd data-rebind="0:left">P1 left</kbd> <kbd data-rebind="0:right">P1 right</kbd>
-            <kbd data-rebind="0:def">P1 def</kbd> <kbd data-rebind="0:jump">P1 jump</kbd> <kbd data-rebind="0:att">P1 att</kbd><br/>
-            <kbd data-rebind="1:up">P2 up</kbd> <kbd data-rebind="1:down">P2 down</kbd>
-            <kbd data-rebind="1:left">P2 left</kbd> <kbd data-rebind="1:right">P2 right</kbd>
-            <kbd data-rebind="1:def">P2 def</kbd> <kbd data-rebind="1:jump">P2 jump</kbd> <kbd data-rebind="1:att">P2 att</kbd>
-            </div>
+            <p class="cs_hint">Click a key cell, then press a key to rebind (F.LF keychanger). Click name to rename. Esc/OK saves.</p>
             <button type="button" class="ok_hit menu_hit" data-i="99">OK</button>
             </div></div>"#,
         );
         if let Some(el) = util::div_class("settings") {
             el.set_inner_html(&html);
+        }
+    }
+
+    /// F.LF manager.alert
+    pub fn alert(&self, mess: &str) {
+        if let Some(box_) = util::qs(".alert_box") {
+            let _ = box_.set_attribute("style", "display:block");
+        }
+        if let Some(msg) = util::qs(".alert_message") {
+            if let Ok(el) = msg.dyn_into::<HtmlElement>() {
+                el.set_inner_text(mess);
+            }
         }
     }
 
@@ -544,11 +597,17 @@ impl Manager {
             self.controllers.clone(),
             true,
         ) {
-            Ok(m) => {
+            Ok(mut m) => {
+                for b in &mut m.ai_brains {
+                    b.difficulty = self.difficulty;
+                }
                 self.match_game = Some(m);
                 self.show_screen(Screen::Gameplay);
             }
-            Err(e) => util::error(&e),
+            Err(e) => {
+                self.alert(&e);
+                util::error(&e);
+            }
         }
     }
 
@@ -606,6 +665,34 @@ impl Manager {
                     el = e.parent_element().and_then(|p| p.dyn_into().ok());
                 }
                 let mut g = mgr2.borrow_mut();
+                // player name edit (settings keychanger)
+                let mut walk_pn = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                while let Some(e) = walk_pn.clone() {
+                    if let Some(pi) = e.get_attribute("data-pname").and_then(|s| s.parse::<usize>().ok()) {
+                        if let Some(win) = web_sys::window() {
+                            let cur = g.slots.get(pi).map(|s| s.player_name.clone()).unwrap_or_default();
+                            if let Ok(Some(v)) = win.prompt_with_message_and_default("Player name:", &cur) {
+                                if let Some(s) = g.slots.get_mut(pi) {
+                                    s.player_name = v;
+                                }
+                                g.render_settings_dom();
+                            }
+                        }
+                        break;
+                    }
+                    walk_pn = e.parent_element().and_then(|p| p.dyn_into().ok());
+                }
+                // alert OK
+                let mut walk_al = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                while let Some(e) = walk_al {
+                    if e.class_list().contains("alert_box_ok") {
+                        if let Some(box_) = util::qs(".alert_box") {
+                            let _ = box_.set_attribute("style", "display:none");
+                        }
+                        break;
+                    }
+                    walk_al = e.parent_element().and_then(|p| p.dyn_into().ok());
+                }
                 if let Some(i) = data_i.and_then(|s| s.parse::<i32>().ok()) {
                     match i {
                         0 => g.show_screen(Screen::CharacterSelect),
@@ -881,6 +968,8 @@ impl Manager {
                                 m.F7_refill();
                                 m.overlay_message("F7 HP/MP refill");
                             }
+                        } else if key == "F8" {
+                            g.toggle_renderer_backend();
                         }
                     }
                 }
@@ -954,9 +1043,37 @@ impl Manager {
                 }
                 self.show_screen(Screen::CharacterSelect);
             }
+            3 => {
+                // cycle difficulty: crazy(-1) → hard(0) → normal(1) → easy(2)
+                self.difficulty = match self.difficulty {
+                    d if d < 0 => 0,
+                    0 => 1,
+                    1 => 2,
+                    _ => -1,
+                };
+                self.render_vs_dom();
+            }
             4 => self.show_screen(Screen::CharacterSelect),
             _ => self.start_match(),
         }
+    }
+
+    fn toggle_renderer_backend(&mut self) {
+        self.renderer_kind = match self.renderer_kind {
+            RendererKind::Canvas => RendererKind::Dom,
+            RendererKind::Dom => RendererKind::Canvas,
+        };
+        if let Some(ref d) = self.dom_layer {
+            d.set_visible(self.renderer_kind == RendererKind::Dom);
+        }
+        let msg = match self.renderer_kind {
+            RendererKind::Canvas => "Renderer: canvas",
+            RendererKind::Dom => "Renderer: DOM sprites",
+        };
+        if let Some(m) = self.match_game.as_mut() {
+            m.overlay_message(msg);
+        }
+        self.network.append_log(msg);
     }
 
     fn frame(&mut self, ts: f64) {
@@ -1035,6 +1152,37 @@ impl Manager {
             if let Some(m) = self.match_game.as_mut() {
                 self.renderer.clear("#000");
                 m.render(&mut self.renderer);
+                // Optional DOM sprite overlay (F.LF sprite-dom); F8 toggles
+                if self.renderer_kind == RendererKind::Dom {
+                    if let Some(dom) = self.dom_layer.as_mut() {
+                        dom.cam_x = m.camera_x;
+                        dom.cam_y = 0.0;
+                        dom.clear_frame();
+                        for ch in &m.characters {
+                            if ch.base.removed {
+                                continue;
+                            }
+                            if let Some(fd) = ch.base.frame_data() {
+                                let id = format!("c{}", ch.base.uid);
+                                dom.draw_sprite_id(&id, &ch.base.sp, fd.centerx, fd.centery);
+                            }
+                        }
+                        for w in &m.weapons {
+                            if let Some(fd) = w.base.frame_data() {
+                                let id = format!("w{}", w.base.uid);
+                                dom.draw_sprite_id(&id, &w.base.sp, fd.centerx, fd.centery);
+                            }
+                        }
+                        for s in &m.specials {
+                            if let Some(fd) = s.base.frame_data() {
+                                let id = format!("s{}", s.base.uid);
+                                dom.draw_sprite_id(&id, &s.base.sp, fd.centerx, fd.centery);
+                            }
+                        }
+                    }
+                } else if let Some(dom) = self.dom_layer.as_ref() {
+                    dom.set_visible(false);
+                }
                 if m.game_over {
                     if let Some(el) = util::qs(".summary_dialog") {
                         let mut html = String::from("<table class='summary'><tr><th>Name</th><th>Kills</th><th>HP</th><th>Team</th></tr>");

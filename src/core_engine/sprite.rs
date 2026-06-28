@@ -201,3 +201,132 @@ pub fn lf2_rect_color(rect: i64) -> String {
     }
     format!("#{:02x}{:02x}{:02x}", r, g, b)
 }
+
+/// DOM sprite layer (F.LF core/sprite-dom) — div + img with CSS transforms
+pub struct DomSpriteLayer {
+    pub root: web_sys::HtmlElement,
+    pub asset_root: String,
+    pub cam_x: f64,
+    pub cam_y: f64,
+    nodes: HashMap<String, web_sys::HtmlElement>,
+    imgs: HashMap<String, HtmlImageElement>,
+}
+
+impl DomSpriteLayer {
+    pub fn attach(parent_sel: &str, asset_root: &str) -> Result<Self, String> {
+        let parent = document()
+            .query_selector(parent_sel)
+            .map_err(|e| format!("{:?}", e))?
+            .ok_or_else(|| format!("missing {}", parent_sel))?;
+        let parent: web_sys::HtmlElement = parent.dyn_into().map_err(|_| "not el")?;
+        // ensure layer
+        let layer = if let Some(el) = parent.query_selector(".F_sprite_layer").ok().flatten() {
+            el.dyn_into().map_err(|_| "layer")?
+        } else {
+            let el = document()
+                .create_element("div")
+                .map_err(|e| format!("{:?}", e))?
+                .dyn_into::<web_sys::HtmlElement>()
+                .map_err(|_| "div")?;
+            el.set_class_name("F_sprite_layer");
+            let _ = el.style().set_property("position", "absolute");
+            let _ = el.style().set_property("left", "0");
+            let _ = el.style().set_property("top", "0");
+            let _ = el.style().set_property("width", "100%");
+            let _ = el.style().set_property("height", "100%");
+            let _ = el.style().set_property("pointer-events", "none");
+            let _ = el.style().set_property("overflow", "hidden");
+            let _ = parent.append_child(&el);
+            el
+        };
+        Ok(Self {
+            root: layer,
+            asset_root: asset_root.trim_end_matches('/').to_string(),
+            cam_x: 0.0,
+            cam_y: 0.0,
+            nodes: HashMap::new(),
+            imgs: HashMap::new(),
+        })
+    }
+
+    pub fn set_visible(&self, on: bool) {
+        let _ = self.root.style().set_property("display", if on { "block" } else { "none" });
+    }
+
+    pub fn clear_frame(&mut self) {
+        // hide all nodes; reused next frame
+        for n in self.nodes.values() {
+            let _ = n.style().set_property("visibility", "hidden");
+        }
+    }
+
+    fn ensure_node(&mut self, id: &str) -> Option<&web_sys::HtmlElement> {
+        if !self.nodes.contains_key(id) {
+            let el = document().create_element("div").ok()?.dyn_into::<web_sys::HtmlElement>().ok()?;
+            el.set_class_name("F_sprite");
+            let _ = el.style().set_property("position", "absolute");
+            let _ = el.style().set_property("overflow", "hidden");
+            let img = document().create_element("img").ok()?.dyn_into::<HtmlImageElement>().ok()?;
+            let _ = img.style().set_property("position", "absolute");
+            let _ = img.style().set_property("left", "0");
+            let _ = img.style().set_property("top", "0");
+            let _ = img.set_attribute("draggable", "false");
+            let _ = el.append_child(&img);
+            let _ = self.root.append_child(&el);
+            self.imgs.insert(id.to_string(), img);
+            self.nodes.insert(id.to_string(), el);
+        }
+        self.nodes.get(id)
+    }
+
+    pub fn draw_sprite_id(&mut self, id: &str, sp: &SpriteInstance, centerx: f64, centery: f64) {
+        if !sp.visible || sp.pic < 0 {
+            return;
+        }
+        let pic = sp.pic as u32;
+        let Some((sx, sy, sw, sh, path)) = sp.pic_uv(pic) else {
+            return;
+        };
+        let url = format!("{}/{}", self.asset_root, path.trim_start_matches('/'));
+        let feet_x = sp.x - self.cam_x;
+        let feet_y = sp.z - self.cam_y;
+        let draw_x = feet_x - centerx;
+        let draw_y = feet_y - centery + sp.y;
+        let mirror = sp.mirror || sp.facing < 0;
+        let w = sw * sp.scale_x;
+        let h = sh * sp.scale_y;
+
+        let _ = self.ensure_node(id);
+        let Some(el) = self.nodes.get(id) else {
+            return;
+        };
+        let _ = el.style().set_property("visibility", "visible");
+        let _ = el.style().set_property("width", &format!("{}px", w));
+        let _ = el.style().set_property("height", &format!("{}px", h));
+        let _ = el.style().set_property("left", &format!("{}px", draw_x));
+        let _ = el.style().set_property("top", &format!("{}px", draw_y));
+        let _ = el.style().set_property("z-index", &format!("{}", (sp.z as i32) + 1000));
+        let _ = el.style().set_property("opacity", &format!("{}", sp.alpha));
+        if mirror {
+            let _ = el.style().set_property("transform", "scaleX(-1)");
+            let _ = el.style().set_property("transform-origin", "center center");
+        } else {
+            let _ = el.style().set_property("transform", "none");
+        }
+        let _ = el.style().set_property("background-image", &format!("url(\"{}\")", url));
+        let _ = el.style().set_property("background-repeat", "no-repeat");
+        let _ = el
+            .style()
+            .set_property("background-position", &format!("-{}px -{}px", sx, sy));
+        if let Some(img) = self.imgs.get(id) {
+            let _ = img.style().set_property("display", "none");
+        }
+    }
+}
+
+/// Active renderer backend (canvas default; DOM optional like F.LF sprite-select)
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RendererKind {
+    Canvas,
+    Dom,
+}

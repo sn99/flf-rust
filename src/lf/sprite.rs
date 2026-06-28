@@ -62,6 +62,26 @@ impl LfSprite {
     pub fn hide(&mut self) {
         self.inst.visible = false;
     }
+
+    /// F.LF sprite.set_alpha
+    pub fn set_alpha(&mut self, a: f64) {
+        self.inst.alpha = a.clamp(0.0, 1.0);
+    }
+
+    /// F.LF sprite z-order hint (maps to instance z for sort)
+    pub fn set_z(&mut self, z: f64) {
+        self.inst.z = z;
+    }
+
+    pub fn set_xy(&mut self, x: f64, y: f64) {
+        self.set_x_y(x, y);
+    }
+
+    pub fn destroy(&mut self) {
+        self.inst.visible = false;
+        self.inst.sheets.clear();
+        self.animators.clear();
+    }
 }
 
 /// Build sheets from bmp (already in BmpData)

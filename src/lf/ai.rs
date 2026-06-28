@@ -45,23 +45,64 @@ pub fn snapshot_json(
     bg_z0: f64,
     bg_z1: f64,
 ) -> String {
-    // Embed compact frame table for AIin.frame(N)
+    // Full-ish frame table for AIin.frame(N) (Challangar / Crusher need many frames)
     let mut frames = serde_json::Map::new();
-    for (k, f) in self_obj.data.frames.iter().take(80) {
-        frames.insert(
-            k.to_string(),
-            serde_json::json!({
-                "state": f.state,
-                "wait": f.wait,
-                "next": f.next,
-                "dvx": f.dvx,
-                "dvy": f.dvy,
-                "mp": f.mp,
-                "hit_a": f.hit_a,
-                "hit_d": f.hit_d,
-                "hit_j": f.hit_j,
-            }),
-        );
+    for (k, f) in self_obj.data.frames.iter() {
+        let mut obj = serde_json::json!({
+            "state": f.state,
+            "wait": f.wait,
+            "next": f.next,
+            "dvx": f.dvx,
+            "dvy": f.dvy,
+            "dvz": f.dvz,
+            "mp": f.mp,
+            "hit_a": f.hit_a,
+            "hit_d": f.hit_d,
+            "hit_j": f.hit_j,
+            "hit_Fa": f.hit_Fa,
+            "hit_Ua": f.hit_Ua,
+            "hit_Da": f.hit_Da,
+            "hit_Fj": f.hit_Fj,
+            "hit_Uj": f.hit_Uj,
+            "hit_Dj": f.hit_Dj,
+            "pic": f.pic,
+            "centerx": f.centerx,
+            "centery": f.centery,
+        });
+        if let Some(map) = obj.as_object_mut() {
+            if !f.itr.is_empty() {
+                let itrs: Vec<serde_json::Value> = f
+                    .itr
+                    .iter()
+                    .map(|i| {
+                        serde_json::json!({
+                            "kind": i.kind, "x": i.x, "y": i.y, "w": i.w, "h": i.h,
+                            "dvx": i.dvx, "dvy": i.dvy, "fall": i.fall, "injury": i.injury,
+                            "effect": i.effect, "zwidth": i.zwidth
+                        })
+                    })
+                    .collect();
+                map.insert("itr".into(), serde_json::Value::Array(itrs));
+            }
+            if !f.bdy.is_empty() {
+                let bdys: Vec<serde_json::Value> = f
+                    .bdy
+                    .iter()
+                    .map(|b| serde_json::json!({"kind": b.kind, "x": b.x, "y": b.y, "w": b.w, "h": b.h}))
+                    .collect();
+                map.insert("bdy".into(), serde_json::Value::Array(bdys));
+            }
+            if let Some(ref wp) = f.wpoint {
+                map.insert(
+                    "wpoint".into(),
+                    serde_json::json!({
+                        "kind": wp.kind, "x": wp.x, "y": wp.y,
+                        "weaponact": wp.weaponact, "attacking": wp.attacking, "cover": wp.cover
+                    }),
+                );
+            }
+        }
+        frames.insert(k.to_string(), obj);
     }
     serde_json::json!({
         "x": self_obj.ps.x,
@@ -84,8 +125,12 @@ pub fn snapshot_json(
         "hold_uid": hold_uid,
         "blink": self_obj.effect.blink,
         "effect_timeout": self_obj.effect.timeout,
+        "oscillate": self_obj.effect.oscillate,
+        "effect_dvx": self_obj.effect.dvx,
+        "effect_dvy": self_obj.effect.dvy,
         "super_armor": self_obj.effect.super_armor,
         "catch_counter": catch_counter,
+        "combo_seq": [],
         "bg_w": bg_w,
         "bg_z": [bg_z0, bg_z1],
         "frames": frames,
