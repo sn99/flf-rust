@@ -239,20 +239,24 @@ impl Match {
         self.paused = !self.paused;
     }
 
-    /// F.LF match.TU_trans — frame wait / transit only (subset; full TU does more)
+    /// F.LF match.TU_trans phase 1: transit all living objects
     pub fn tu_trans(&mut self) {
-        let bg_z = self.background.zboundary;
-        let bg_w = self.background.width;
         for ch in &mut self.characters {
-            // only apply pending transistor when wait expired via physics partial
-            if ch.base.trans.wait == 0 {
-                let _ = ch.base.apply_transit();
+            ch.transit_phase();
+        }
+        for w in &mut self.weapons {
+            if w.base.trans.wait == 0 {
+                let _ = w.base.apply_transit();
             }
         }
-        let _ = (bg_z, bg_w);
+        for s in &mut self.specials {
+            if s.base.trans.wait == 0 {
+                let _ = s.base.apply_transit();
+            }
+        }
     }
 
-    /// Full TU — order approximates F.LF: controllers/AI → TU → interactions → tasks → camera
+    /// Full TU — F.LF order: transit → process_tasks → TU → interactions → bg/sound/hp/gameover → AI
     pub fn tu(&mut self) {
         if self.paused || self.game_over {
             return;
@@ -261,117 +265,17 @@ impl Match {
         let bg_z = self.background.zboundary;
         let bg_w = self.background.width;
 
-        let snapshot: Vec<(i32, f64, f64, bool)> = self
-            .characters
-            .iter()
-            .map(|c| (c.base.team, c.base.ps.x, c.base.ps.z, c.base.removed || c.base.hp <= 0.0))
-            .collect();
+        // --- F.LF TU_trans: transit ---
+        self.tu_trans();
+        // --- process_tasks (spawns before TU physics of new objects) ---
+        self.process_tasks();
 
-        let enemy_snap: Vec<(u32, f64, f64, f64, i32)> = self
-            .characters
-            .iter()
-            .map(|c| {
-                (
-                    c.base.uid,
-                    c.base.ps.x,
-                    c.base.ps.z,
-                    c.base.ps.y,
-                    c.base.state(),
-                )
-            })
-            .collect();
-
-        let weapon_snap: Vec<(u32, f64, f64, bool, bool)> = self
-            .weapons
-            .iter()
-            .map(|w| (w.base.uid, w.base.ps.x, w.base.ps.z, w.held || w.base.removed, w.base.obj_type == "drink"))
-            .collect();
-
+        // --- emit TU for characters (human / pending AI from last tick) ---
         let ctrls = self.controllers.borrow();
-        let time = self.time;
-        while self.ai_brains.len() < self.characters.len() {
-            self.ai_brains.push(crate::lf::ai::AiBrain::default());
-        }
-        for (i, ch) in self.characters.iter_mut().enumerate() {
+        for ch in self.characters.iter_mut() {
             if ch.base.ai {
-                let mut cfg = std::collections::HashMap::new();
-                for k in ["up", "down", "left", "right", "def", "jump", "att"] {
-                    cfg.insert(k.to_string(), k.to_string());
-                }
-                let mut ac = Controller::new_keyboard(cfg);
-                let my_team = ch.base.team;
-                let holding = ch.hold_weapon.is_some();
-                let enemies: Vec<(u32, f64, f64, f64, i32)> = enemy_snap
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, e)| {
-                        *j < snapshot.len()
-                            && snapshot[*j].0 != my_team
-                            && !snapshot[*j].3
-                            && e.0 != ch.base.uid
-                    })
-                    .map(|(_, e)| *e)
-                    .collect();
-                if time % 3 == 0 {
-                    let hold_heavy = holding && ch.base.hold_type == "heavyweapon";
-                    let hold_drink = holding && ch.base.hold_type == "drink";
-                    let hold_uid = ch.hold_weapon.map(|u| u as i32).unwrap_or(-1);
-                    let mut used_script = false;
-                    if self.ai_brains[i].prefer_script {
-                        let self_json = crate::lf::ai::snapshot_json(
-                            &ch.base,
-                            &ch.base.hold_type,
-                            ch.hold_weapon_oid,
-                            hold_uid,
-                            ch.catch_counter,
-                            self.background.width,
-                            bg_z.0,
-                            bg_z.1,
-                        );
-                        let others_json: Vec<serde_json::Value> = enemies
-                            .iter()
-                            .filter(|e| e.0 != ch.base.uid)
-                            .take(8)
-                            .map(|e| {
-                                serde_json::json!({
-                                    "x": e.1, "y": e.3, "z": e.2, "vx": 0, "vy": 0, "vz": 0,
-                                    "facing": 1, "hp": 500, "mp": 200, "fall": 0,
-                                    "team": 0, "id": 0, "uid": e.0, "state": e.4, "frame": 0,
-                                    "hold_type": "", "hold_oid": 0, "hold_uid": -1,
-                                    "blink": false, "effect_timeout": 0, "catch_counter": 0,
-                                    "bg_w": self.background.width, "bg_z": [bg_z.0, bg_z.1],
-                                })
-                            })
-                            .collect();
-                        let oj = serde_json::Value::Array(others_json).to_string();
-                        let script = self.ai_brains[i].script_name.clone();
-                        if let Some(keys) = crate::lf::ai::try_script_keys_sync(
-                            &self.asset_root,
-                            &script,
-                            &self_json,
-                            &oj,
-                        ) {
-                            for k in keys {
-                                ac.keypress(&k);
-                            }
-                            used_script = true;
-                        }
-                    }
-                    if !used_script {
-                        crate::lf::ai::ai_fill(
-                            &mut self.ai_brains[i],
-                            &ch.base,
-                            &enemies,
-                            &weapon_snap,
-                            holding,
-                            hold_heavy,
-                            hold_drink,
-                            &mut ac,
-                            time,
-                        );
-                    }
-                }
-                ch.tu(Some(&ac), bg_z, bg_w);
+                // pending_ai_keys applied inside Character::tu
+                ch.tu(None, bg_z, bg_w);
             } else if let Some(ci) = ch.base.controller_index {
                 ch.tu(ctrls.get(ci), bg_z, bg_w);
             } else {
@@ -439,13 +343,12 @@ impl Match {
             self.spawn_broken(x, y, z);
         }
 
-        // frame sounds
+        // frame sounds (sound.tu at end of TU_trans)
         for ch in &mut self.characters {
             if let Some(path) = ch.base.take_sound() {
                 self.sound.play(&path);
             }
         }
-        self.sound.tu();
 
         for w in &mut self.weapons {
             w.tu(bg_z, bg_w);
@@ -479,9 +382,171 @@ impl Match {
         self.pick_weapons();
         self.flush_broken_effects();
         self.flush_visual_effects();
+        // late tasks from opoints during TU
         self.process_tasks();
+
+        // background / sound / gameover (F.LF TU_trans tail)
         self.update_camera();
+        self.background.tu(self.time);
+        self.sound.tu();
         self.check_game_over();
+        self.apply_leaving();
+
+        // AI at end of TU (F.LF) — keys apply next TU via pending_ai_keys
+        self.run_ai_end_of_tu(bg_z, bg_w);
+    }
+
+    /// F.LF AI_frameskip=3 at end of TU_trans
+    fn run_ai_end_of_tu(&mut self, bg_z: (f64, f64), bg_w: f64) {
+        if self.time % 3 != 0 {
+            return;
+        }
+        while self.ai_brains.len() < self.characters.len() {
+            self.ai_brains.push(crate::lf::ai::AiBrain::default());
+        }
+        let snapshot: Vec<(i32, f64, f64, bool)> = self
+            .characters
+            .iter()
+            .map(|c| {
+                (
+                    c.base.team,
+                    c.base.ps.x,
+                    c.base.ps.z,
+                    c.base.removed || c.base.hp <= 0.0,
+                )
+            })
+            .collect();
+        let enemy_snap: Vec<(u32, f64, f64, f64, i32)> = self
+            .characters
+            .iter()
+            .map(|c| {
+                (
+                    c.base.uid,
+                    c.base.ps.x,
+                    c.base.ps.z,
+                    c.base.ps.y,
+                    c.base.state(),
+                )
+            })
+            .collect();
+        let weapon_snap: Vec<(u32, f64, f64, bool, bool)> = self
+            .weapons
+            .iter()
+            .map(|w| {
+                (
+                    w.base.uid,
+                    w.base.ps.x,
+                    w.base.ps.z,
+                    w.held || w.base.removed,
+                    w.base.obj_type == "drink",
+                )
+            })
+            .collect();
+        let time = self.time;
+        let asset_root = self.asset_root.clone();
+        let bg_w_val = bg_w;
+        for i in 0..self.characters.len() {
+            if !self.characters[i].base.ai || self.characters[i].base.removed {
+                continue;
+            }
+            let my_team = self.characters[i].base.team;
+            let holding = self.characters[i].hold_weapon.is_some();
+            let enemies: Vec<(u32, f64, f64, f64, i32)> = enemy_snap
+                .iter()
+                .enumerate()
+                .filter(|(j, e)| {
+                    *j < snapshot.len()
+                        && snapshot[*j].0 != my_team
+                        && !snapshot[*j].3
+                        && e.0 != self.characters[i].base.uid
+                })
+                .map(|(_, e)| *e)
+                .collect();
+            let hold_heavy = holding && self.characters[i].base.hold_type == "heavyweapon";
+            let hold_drink = holding && self.characters[i].base.hold_type == "drink";
+            let hold_uid = self.characters[i]
+                .hold_weapon
+                .map(|u| u as i32)
+                .unwrap_or(-1);
+            let mut keys = vec![];
+            let mut used_script = false;
+            if self.ai_brains[i].prefer_script {
+                let self_json = crate::lf::ai::snapshot_json(
+                    &self.characters[i].base,
+                    &self.characters[i].base.hold_type,
+                    self.characters[i].hold_weapon_oid,
+                    hold_uid,
+                    self.characters[i].catch_counter,
+                    bg_w_val,
+                    bg_z.0,
+                    bg_z.1,
+                );
+                let others_json: Vec<serde_json::Value> = enemies
+                    .iter()
+                    .take(8)
+                    .map(|e| {
+                        serde_json::json!({
+                            "x": e.1, "y": e.3, "z": e.2, "vx": 0, "vy": 0, "vz": 0,
+                            "facing": 1, "hp": 500, "mp": 200, "fall": 0,
+                            "team": 0, "id": 0, "uid": e.0, "state": e.4, "frame": 0,
+                            "hold_type": "", "hold_oid": 0, "hold_uid": -1,
+                            "blink": false, "effect_timeout": 0, "catch_counter": 0,
+                            "bg_w": bg_w_val, "bg_z": [bg_z.0, bg_z.1],
+                        })
+                    })
+                    .collect();
+                let oj = serde_json::Value::Array(others_json).to_string();
+                let script = self.ai_brains[i].script_name.clone();
+                if let Some(k) =
+                    crate::lf::ai::try_script_keys_sync(&asset_root, &script, &self_json, &oj)
+                {
+                    keys = k;
+                    used_script = true;
+                }
+            }
+            if !used_script {
+                let mut cfg = std::collections::HashMap::new();
+                for k in ["up", "down", "left", "right", "def", "jump", "att"] {
+                    cfg.insert(k.to_string(), k.to_string());
+                }
+                let mut ac = Controller::new_keyboard(cfg);
+                crate::lf::ai::ai_fill(
+                    &mut self.ai_brains[i],
+                    &self.characters[i].base,
+                    &enemies,
+                    &weapon_snap,
+                    holding,
+                    hold_heavy,
+                    hold_drink,
+                    &mut ac,
+                    time,
+                );
+                for a in ["up", "down", "left", "right", "def", "jump", "att"] {
+                    if ac.is_pressed(a) {
+                        keys.push(a.to_string());
+                    }
+                }
+            }
+            self.characters[i].queue_ai_keys(keys);
+        }
+    }
+
+    /// F.LF background.leaving — destroy specials/weapons far off-screen
+    fn apply_leaving(&mut self) {
+        let w = self.background.width;
+        let margin = 200.0;
+        for s in &mut self.specials {
+            if self.background.leaving(s.base.ps.x, margin) {
+                s.base.trans_frame(1000, 5);
+                s.base.removed = true;
+            }
+        }
+        for wp in &mut self.weapons {
+            if !wp.held && (wp.base.ps.x < -margin || wp.base.ps.x > w + margin) {
+                wp.base.removed = true;
+            }
+        }
+        let _ = w;
     }
 
     fn flush_visual_effects(&mut self) {
@@ -623,20 +688,40 @@ impl Match {
             self.characters[i].base.vrest.insert(vic_uid, vrest);
             self.characters[j].base.itr_vrest_update(att_uid, vrest);
 
+            // F.LF: defend only if attacked from front:
+            // (att.x > vic.x) === (vic facing right)
             let defending = self.characters[j].base.state() == 7;
             let mut inj = injury;
-            if defending {
-                let same_dir = self.characters[j].base.facing == facing;
-                if !same_dir {
-                    inj *= global::DEFEND_INJURY_FACTOR;
-                    self.characters[j].base.bdefend += injury;
-                    if self.characters[j].base.bdefend < global::DEFEND_BREAK_LIMIT {
-                        self.characters[j].base.trans_frame(111, 8);
-                        self.sound.play("1/002");
-                        continue;
-                    }
-                    self.characters[j].base.trans_frame(112, 12);
+            let vic_x = self.characters[j].base.ps.x;
+            let vic_face_right = self.characters[j].base.facing > 0;
+            let attacked_from_front = (att_x > vic_x) == vic_face_right;
+            if defending && attacked_from_front {
+                inj *= global::DEFEND_INJURY_FACTOR;
+                self.characters[j].base.bdefend += if bdef != 0.0 { bdef } else { injury };
+                // absorb some dvx (handled by reduced fall via continue on effective defend)
+                if self.characters[j].base.bdefend <= global::DEFEND_BREAK_LIMIT {
+                    self.characters[j].base.trans_frame(111, 8);
+                    self.characters[j]
+                        .base
+                        .effect_create(0, 3, dvx * 0.3, 0.0);
+                    self.sound.play("1/002");
+                    // still apply reduced injury
+                    let (_d, _) = self.characters[j].base.injure(
+                        inj,
+                        0.0,
+                        dvx * 0.2 * facing as f64,
+                        0.0,
+                        att_x,
+                        0,
+                        ikind,
+                    );
+                    let _ = facing;
+                    continue;
                 }
+                self.characters[j].base.trans_frame(112, 12);
+            } else if defending {
+                // hit from behind — full injury, lose defend
+                self.characters[j].base.bdefend = 45.0;
             }
 
             let dvy_use = if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY };
@@ -995,13 +1080,14 @@ impl Match {
                     vactions.push((vid, vaction));
                 }
                 if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
+                    // F.LF caught_b then coincide
+                    ch.caught_b(x, y, facing, 0.0);
                     ch.base.ps.x = x;
                     ch.base.ps.y = y;
                     ch.base.ps.z = z;
                     ch.base.ps.vx = 0.0;
                     ch.base.ps.vy = 0.0;
                     ch.base.ps.vz = 0.0;
-                    // face catcher by default
                     ch.base.facing = -facing;
                 }
                 let fn_ = self.characters[i].base.frame.n;
@@ -1009,7 +1095,7 @@ impl Match {
                     let vid = self.characters[i].base.holding_uid.take();
                     if let Some(vid) = vid {
                         if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
-                            ch.base.held_by = None;
+                            ch.caught_release();
                         }
                     }
                 }

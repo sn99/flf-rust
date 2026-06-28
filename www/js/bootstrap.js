@@ -1,4 +1,4 @@
-import init, { start_game, version } from '../pkg/flf.js?v=20260629e';
+import init, { start_game, version } from '../pkg/flf.js?v=20260629f';
 // AI bridge loaded via script tag; ensure global exists
 
 const loading = document.getElementById('loading');

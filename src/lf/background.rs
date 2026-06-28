@@ -1,5 +1,6 @@
 use serde_json::Value;
 use crate::core_engine::sprite::{lf2_rect_color, CanvasRenderer};
+use crate::lf::global;
 
 #[derive(Clone, Debug)]
 pub struct Background {
@@ -11,6 +12,7 @@ pub struct Background {
     pub shadow_w: f64,
     pub shadow_h: f64,
     pub layers: Vec<BgLayer>,
+    pub timer: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -24,6 +26,8 @@ pub struct BgLayer {
     pub cc: i32,
     pub c1: i32,
     pub c2: i32,
+    /// Parallax ratio (F.LF layer width group): 0 = static sky, 1 = floor scroll 1:1
+    pub ratio: f64,
 }
 
 impl Background {
@@ -52,16 +56,21 @@ impl Background {
             for L in layer {
                 let path = L.get("pic").and_then(|p| p.as_str()).unwrap_or("").to_string();
                 let rect_color = L.get("rect").and_then(|r| r.as_i64()).map(lf2_rect_color);
+                let lw = L["width"].as_f64().unwrap_or(width);
+                // F.LF: ratio = (layerWidth - window) / (bgWidth - window)
+                let denom = (width - global::WINDOW_WIDTH).max(1.0);
+                let ratio = ((lw - global::WINDOW_WIDTH) / denom).clamp(0.0, 1.5);
                 layers.push(BgLayer {
                     path,
                     x: L["x"].as_f64().unwrap_or(0.0),
                     y: L["y"].as_f64().unwrap_or(0.0),
-                    width: L["width"].as_f64().unwrap_or(width),
+                    width: lw,
                     height: L["height"].as_f64().unwrap_or(0.0),
                     rect_color,
                     cc: L["cc"].as_i64().unwrap_or(0) as i32,
                     c1: L["c1"].as_i64().unwrap_or(0) as i32,
                     c2: L["c2"].as_i64().unwrap_or(0) as i32,
+                    ratio,
                 });
             }
         }
@@ -74,19 +83,30 @@ impl Background {
             shadow_w,
             shadow_h,
             layers,
+            timer: 0,
         }
+    }
+
+    /// F.LF background.TU — tick timed layers
+    pub fn tu(&mut self, time: u32) {
+        self.timer = time;
+    }
+
+    /// F.LF background.leaving(o, xt) — true if x is outside scrollable field + margin
+    pub fn leaving(&self, x: f64, margin: f64) -> bool {
+        x < -margin || x > self.width + margin
     }
 
     pub fn draw(&self, ren: &mut CanvasRenderer, time: u32) {
         for layer in &self.layers {
-            // animated layer visibility cc/c1/c2
             if layer.cc > 0 {
                 let phase = (time as i32 / 2) % layer.cc;
                 if phase < layer.c1 || phase > layer.c2 {
                     continue;
                 }
             }
-            let x = layer.x - ren.cam_x;
+            // parallax: scroll by cam * ratio
+            let x = layer.x - ren.cam_x * layer.ratio;
             if let Some(ref col) = layer.rect_color {
                 let h = if layer.height > 0.0 { layer.height } else { 20.0 };
                 ren.fill_rect_color(x, layer.y, layer.width, h, col);

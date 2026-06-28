@@ -251,6 +251,7 @@ impl Manager {
                 <button type="button" class="menu_hit" data-i="1" style="top:45px;height:26px;" title="network"></button>
                 <button type="button" class="menu_hit" data-i="2" style="top:76px;height:27px;" title="settings"></button>
               </div>
+              <button type="button" class="menu_hit stage_entry" data-i="3" style="position:absolute;left:8px;bottom:8px;width:120px;height:22px;opacity:0.01;" title="stage mode"></button>
             </div>"#
         );
         if let Some(el) = util::div_class("frontpage_content") {
@@ -292,8 +293,9 @@ impl Manager {
             let team_col = ["#afdcff", "#1946ff", "#ffffff", "#ff9b9b"]
                 .get((slot.team as usize).saturating_sub(1) % 4)
                 .unwrap_or(&"#fff");
+            let joined_cls = if slot.joined { " joined" } else { "" };
             html.push_str(&format!(
-                r#"<div class="cs_box" style="left:{px}px;top:{py}px;width:120px;height:116px;">
+                r#"<div class="cs_box{joined_cls}" style="left:{px}px;top:{py}px;width:120px;height:116px;">
                   <img src="{pic}" width="100" height="100" alt=""/>
                   <div class="cs_name" style="color:{team_col}">{name}</div>
                   <div class="cs_meta">{pn} T{team}</div>
@@ -701,6 +703,16 @@ impl Manager {
                             g.show_screen(Screen::Network);
                         }
                         2 => g.show_screen(Screen::Settings),
+                        3 => {
+                            // Stage mode shell — spawn VS with more COMs (LF2 stage-ish)
+                            g.alert("Stage mode (shell): starting 4 COM battle.");
+                            g.num_computers = 4;
+                            g.computer_cursor = 4;
+                            for s in &mut g.slots {
+                                s.joined = true;
+                            }
+                            g.start_match();
+                        }
                         99 => { g.save_settings(); g.show_screen(Screen::FrontPage); },
                         _ => {}
                     }

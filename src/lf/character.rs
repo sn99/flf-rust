@@ -37,6 +37,15 @@ pub struct Character {
     pub hold_weapon_oid: i32,
     pub last_state: i32,
     pub infinite_mp: bool,
+    /// Keys applied at start of next TU (F.LF AI runs end of TU_trans)
+    pub pending_ai_keys: Vec<String>,
+    /// Catch sync (F.LF caught_b_*)
+    pub caught_hold_x: f64,
+    pub caught_hold_y: f64,
+    pub caught_adir: i32,
+    pub caught_vdir: f64,
+    pub caught_throwz: Option<f64>,
+    pub catch_frame_tu: bool,
 }
 
 impl Character {
@@ -71,7 +80,88 @@ impl Character {
             hold_weapon_oid: 0,
             last_state: 0,
             infinite_mp: false,
+            pending_ai_keys: vec![],
+            caught_hold_x: 0.0,
+            caught_hold_y: 0.0,
+            caught_adir: 1,
+            caught_vdir: 0.0,
+            caught_throwz: None,
+            catch_frame_tu: false,
         }
+    }
+
+    /// F.LF emit_event('transit') — apply pending frame transitions
+    pub fn transit_phase(&mut self) {
+        if self.base.removed {
+            return;
+        }
+        if self.base.trans.wait == 0 {
+            let _ = self.base.apply_transit();
+        }
+        let _ = crate::lf::character_states::dispatch(self, "transit", None);
+    }
+
+    /// F.LF caught_b — store hold point from catcher frame
+    pub fn caught_b(&mut self, hold_x: f64, hold_y: f64, adir: i32, vdir: f64) {
+        self.caught_hold_x = hold_x;
+        self.caught_hold_y = hold_y;
+        self.caught_adir = adir;
+        self.caught_vdir = vdir;
+    }
+
+    /// F.LF caught_throw — impulse from catcher cpoint
+    pub fn caught_throw(&mut self, throwvx: f64, throwvy: f64, throwvz: f64, throwinjury: f64, adir: i32) {
+        let dir = if adir >= 0 { 1.0 } else { -1.0 };
+        if throwvx != 0.0 {
+            self.base.ps.vx = dir * throwvx;
+        }
+        if throwvy != 0.0 {
+            self.base.ps.vy = throwvy;
+        }
+        let mut vz = throwvz;
+        if vz as i32 == global::UNSPECIFIED {
+            vz = 0.0;
+        }
+        if vz != 0.0 {
+            self.base.ps.vz = vz;
+        }
+        if let Some(tz) = self.caught_throwz {
+            self.base.ps.vz *= tz;
+        } else {
+            self.base.ps.vz *= self.caught_vdir;
+        }
+        self.caught_throwinjury = if throwinjury != 0.0 && throwinjury as i32 != global::UNSPECIFIED {
+            throwinjury
+        } else {
+            global::DEFAULT_THROW_INJURY
+        };
+        // impulse
+        self.base.ps.x += self.base.ps.vx;
+        self.base.ps.y += self.base.ps.vy * 2.0;
+        self.base.ps.z += self.base.ps.vz;
+        self.base.held_by = None;
+        self.base.trans_frame(12, 20); // fall
+    }
+
+    /// F.LF caught_release
+    pub fn caught_release(&mut self) {
+        self.base.held_by = None;
+        self.caught_throwz = None;
+        self.catch_frame_tu = false;
+        if self.base.state() == 10 {
+            self.base.trans_frame(212, 15); // F.LF often 212 after release
+        }
+    }
+
+    pub fn caught_cpointkind(&self) -> i32 {
+        self.base
+            .frame_data()
+            .and_then(|f| f.cpoint.as_ref().map(|c| c.kind))
+            .unwrap_or(0)
+    }
+
+    pub fn queue_ai_keys(&mut self, keys: Vec<String>) {
+        self.pending_ai_keys = keys;
     }
 
     /// properties.js entry for held weapon id
@@ -116,6 +206,23 @@ impl Character {
         self.base.skip_mp_cost = self.infinite_mp;
         let state = self.base.state();
         self.base.allow_switch_dir = matches!(state, 0 | 1 | 4 | 7); // 2 run 5 dash lock facing (F.LF states_switch_dir)
+
+        // Apply AI keys queued from previous TU end (F.LF AI timing)
+        let mut ai_ctrl_storage: Option<Controller> = None;
+        let ctrl = if !self.pending_ai_keys.is_empty() {
+            let mut cfg = std::collections::HashMap::new();
+            for k in ["up", "down", "left", "right", "def", "jump", "att"] {
+                cfg.insert(k.to_string(), k.to_string());
+            }
+            let mut ac = Controller::new_keyboard(cfg);
+            for k in self.pending_ai_keys.drain(..) {
+                ac.keypress(&k);
+            }
+            ai_ctrl_storage = Some(ac);
+            ai_ctrl_storage.as_ref()
+        } else {
+            ctrl
+        };
 
         // F.LF state_entry / state_exit
         if state != self.last_state {
@@ -243,6 +350,41 @@ impl Character {
                     self.base.ps.vy = 0.0;
                 }
                 self.base.trans.set_wait(99, 10, 99);
+                if self.base.statemem_frame_tu {
+                    self.catch_frame_tu = true;
+                }
+                // F.LF being caught TU — coincide after frame lock
+                if self.catch_frame_tu && self.base.held_by.is_some() {
+                    self.catch_frame_tu = false;
+                    if self.caught_cpointkind() == 2 {
+                        let hx = self.caught_hold_x;
+                        let hy = self.caught_hold_y;
+                        let adir = self.caught_adir;
+                        let (vaction, throwvx, throwvy, throwvz, throwinjury) = self
+                            .base
+                            .frame_data()
+                            .and_then(|fd| fd.cpoint.as_ref())
+                            .map(|cp| {
+                                (
+                                    cp.vaction,
+                                    cp.throwvx,
+                                    cp.throwvy,
+                                    cp.throwvz,
+                                    cp.throwinjury,
+                                )
+                            })
+                            .unwrap_or((0, 0.0, 0.0, 0.0, 0.0));
+                        if vaction != 0 {
+                            self.base.trans_frame(vaction, 22);
+                        }
+                        if throwvx != 0.0 {
+                            self.caught_throw(throwvx, throwvy, throwvz, throwinjury, adir);
+                        } else {
+                            self.base.ps.x = hx;
+                            self.base.ps.y = hy;
+                        }
+                    }
+                }
             }
             11 => {
                 // injured lock
@@ -356,13 +498,9 @@ impl Character {
                 }
             }
             1700 => {
-                // heal state — set heal aura duration
-                if self.base.frame.pn != 1700 {
-                    self.base.effect.timeout = 30;
-                    self.base.effect.super_armor = true;
-                }
-                if self.base.hp < self.base.hp_full {
-                    self.base.hp = (self.base.hp + 2.0).min(self.base.hp_full);
+                // heal via effect.heal pool (recover_tu); ensure pool set
+                if self.base.effect.heal <= 0.0 {
+                    self.base.effect.heal = global::HEAL_MAX;
                 }
             }
             _ => {}

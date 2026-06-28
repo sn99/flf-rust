@@ -2,14 +2,15 @@
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Character state machine | **~97%** — fall/heal/crouch dash/broken-defend/immunities |
-| 2 | Match / LO / weapons / specials / chase | **~93%** |
-| 3 | AI AIin scripts | **~90%** — persistent `TU()`, embedded LF2_19 sources |
-| 4 | Manager UX / keychanger / F-keys | **~92%** — F4/F8/F9 match F.LF; maximize F10 |
-| 5 | Canvas + DOM sprites | **Yes** (F11 / `?renderer=dom`) |
-| 6 | Peer / lockstep | **~85%** |
-| 7 | F.Lobby 0.1 client | **~80%** + Peer/BC fallback |
-| 8 | TU identity certification | **Harness ready** — not green vs stock JS yet |
-| 9 | Stage mode | **No** (optional for 1v1) |
+| 1 | Character state machine | **~98%** |
+| 2 | Match TU_trans order | **~95%** transit→tasks→TU→AI end |
+| 3 | Hit / defend / catch | **~94%** front defend, caught_* |
+| 4 | Weapons / specials / chase / leaving | **~94%** |
+| 5 | Background parallax | **~90%** |
+| 6 | AI AIin scripts | **~90%** |
+| 7 | Manager / F-keys / F.Lobby | **~92%** |
+| 8 | Canvas + DOM sprites | **Yes** |
+| 9 | Stage mode | **Shell only** |
+| 10 | TU bit-identity cert | **Harness; not green** |
 
-**Formal answer:** Rust is a **near-complete playable 1v1 port**, **not** certified bit-identical to F.LF. Use `/game/game.html` for upstream JS fidelity.
+**Formal:** near-complete playable 1v1 port; not certified bit-identical.

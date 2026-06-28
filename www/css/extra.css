@@ -117,3 +117,20 @@
 
 .alert_box { position: fixed; left: 50%; top: 40%; transform: translate(-50%,-50%);
   background: #123; border: 2px solid #6af; padding: 16px 24px; z-index: 100; color: #fff; }
+
+/* F.LF-style idle portrait bob (animator stand-in) */
+@keyframes flf_idle_bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.cs_box img {
+  animation: flf_idle_bob 0.8s steps(2) infinite;
+  image-rendering: pixelated;
+}
+.cs_box.joined img { animation-duration: 0.55s; }
+
+/* Stage mode shell dialog */
+.stage_mode_dlg {
+  position: absolute; left: 200px; top: 120px; width: 360px;
+  background: rgba(0,20,60,0.92); border: 2px solid #6af; padding: 16px; color: #def; z-index: 5;
+}
