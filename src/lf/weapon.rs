@@ -41,6 +41,7 @@ impl Weapon {
 
         // just landed
         if self.base.ps.y >= 0.0 && vy_before > 0.0 && y_before < 0.0 {
+            self.base.team = 0;
             let speed = (self.base.ps.vx * self.base.ps.vx
                 + vy_before * vy_before
                 + self.base.ps.vz * self.base.ps.vz)
@@ -92,7 +93,7 @@ impl Weapon {
     pub fn drop(&mut self, vx: f64, vy: f64, vz: f64) {
         self.held = false;
         self.holder_uid = None;
-        self.base.team = 0;
+        // keep team so thrown weapon damages opponents (cleared on land in tu)
         self.base.ps.vx = vx;
         self.base.ps.vy = vy;
         self.base.ps.vz = vz;
