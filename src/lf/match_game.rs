@@ -346,8 +346,80 @@ impl Match {
     }
 
     fn pick_weapons(&mut self) {
-        // simple: press att near weapon on ground in stand — light pick frame 12 area
-        // skip full implement; weapons just sit and can be hit later
+        // itr kind 1 on walking frames = catch weapon scope — approximate: stand/walk near weapon + att
+        let mut picks: Vec<(usize, usize)> = vec![]; // char idx, weapon idx
+        let mut throws: Vec<(usize, f64, f64, f64)> = vec![]; // weapon idx after drop from char
+
+        for (ci, ch) in self.characters.iter().enumerate() {
+            if ch.base.removed { continue; }
+            // throw frames 45, 50 — release weapon
+            let fr = ch.base.frame.n;
+            if ch.hold_weapon.is_some() && matches!(fr, 45 | 46 | 47 | 50 | 51 | 52) {
+                if let Some(fd) = ch.base.frame_data() {
+                    if let Some(wp) = &fd.wpoint {
+                        if wp.kind == 2 || wp.attacking > 0 || fr == 50 {
+                            let facing = ch.base.facing as f64;
+                            throws.push((ci, 8.0 * facing, -4.0, 0.0));
+                        }
+                    }
+                }
+            }
+        }
+        for (ci, vx, vy, vz) in throws {
+            if let Some(wid) = self.characters[ci].hold_weapon.take() {
+                self.characters[ci].base.holding_uid = None;
+                self.characters[ci].base.hold_type.clear();
+                if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
+                    w.drop(vx, vy, vz);
+                }
+            }
+        }
+
+        // pick up: character in state 0/1, att edge, close to weapon
+        for (ci, ch) in self.characters.iter().enumerate() {
+            if ch.base.removed || ch.hold_weapon.is_some() { continue; }
+            if !matches!(ch.base.state(), 0 | 1) { continue; }
+            // use arest==0 and attack intent: frame just entered 60 or att — simpler distance check each TU if very close
+            for (wi, w) in self.weapons.iter().enumerate() {
+                if w.held { continue; }
+                let dx = (w.base.ps.x - ch.base.ps.x).abs();
+                let dz = (w.base.ps.z - ch.base.ps.z).abs();
+                let dy = (w.base.ps.y - ch.base.ps.y).abs();
+                if dx < 35.0 && dz < 12.0 && dy < 20.0 && w.base.ps.y >= -5.0 {
+                    // pick when character attacks or walks over with att held — use frame 60 start
+                    if matches!(ch.base.frame.n, 60 | 65 | 20 | 25) || ch.base.state() == 1 {
+                        picks.push((ci, wi));
+                        break;
+                    }
+                }
+            }
+        }
+        for (ci, wi) in picks {
+            if self.characters[ci].hold_weapon.is_some() { continue; }
+            if self.weapons[wi].held { continue; }
+            let uid = self.weapons[wi].base.uid;
+            let wtype = self.weapons[wi].base.obj_type.clone();
+            self.weapons[wi].held = true;
+            self.weapons[wi].holder_uid = Some(self.characters[ci].base.uid);
+            self.weapons[wi].base.team = self.characters[ci].base.team;
+            self.characters[ci].hold_weapon = Some(uid);
+            self.characters[ci].base.holding_uid = Some(uid);
+            self.characters[ci].base.hold_type = wtype;
+        }
+
+        // sync held weapons to wpoint
+        for ch in &self.characters {
+            if let Some(wid) = ch.hold_weapon {
+                if let Some((x, y, z, facing, wact)) = ch.wpoint_world() {
+                    if let Some(w) = self.weapons.iter_mut().find(|w| w.base.uid == wid) {
+                        w.attach_to(ch.base.uid, x, y, z, facing);
+                        if wact > 0 {
+                            w.base.trans_frame(wact, 2);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn update_camera(&mut self) {

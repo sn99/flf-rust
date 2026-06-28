@@ -65,6 +65,7 @@ pub struct LivingObject {
     pub mech: Mech,
     pub effect: EffectState,
     pub holding_uid: Option<u32>,
+    pub hold_type: String,
     pub held_by: Option<u32>,
     pub dead: bool,
     pub removed: bool,
@@ -106,6 +107,7 @@ impl LivingObject {
             mech: Mech::new(None),
             effect: EffectState { num: -99, ..Default::default() },
             holding_uid: None,
+            hold_type: String::new(),
             held_by: None,
             dead: false,
             removed: false,
@@ -158,30 +160,47 @@ impl LivingObject {
         self.enter_frame_applied = false;
         self.statemem_frame_tu = true;
         // apply frame force once on entry (dvx/dvy/dvz)
-        self.apply_frame_force(&fd, true);
+        self.apply_frame_force(&fd);
         self.enter_frame_applied = true;
         true
     }
 
-    fn apply_frame_force(&mut self, fd: &FrameData, entry: bool) {
-        let unspec = global::UNSPECIFIED as f64;
-        // dvx: in LF2, 0 often means keep; non-zero sets velocity along facing
+    /// F.LF livingobject.frame_force — exact rules
+    pub fn frame_force(&mut self) {
+        let Some(fd) = self.frame_data().cloned() else { return };
+        self.apply_frame_force(&fd);
+    }
+
+    fn apply_frame_force(&mut self, fd: &FrameData) {
         if fd.dvx != 0.0 && (fd.dvx as i32) != global::UNSPECIFIED {
-            if entry || fd.dvx != unspec {
-                // absolute set with facing
-                if fd.dvx == 550.0 {
-                    // stop
-                    self.ps.vx = 0.0;
-                } else {
-                    self.ps.vx = fd.dvx * self.facing as f64;
+            if fd.dvx == 550.0 {
+                self.ps.vx = 0.0;
+            } else {
+                let avx = self.ps.vx.abs();
+                // accelerate ok if airborne or slower than target
+                if self.ps.y < 0.0 || avx < fd.dvx {
+                    self.ps.vx = self.facing as f64 * fd.dvx;
+                }
+                // decelerate gradual when dvx negative in data (LF2 uses negative dvx as friction cue)
+                if fd.dvx < 0.0 {
+                    self.ps.vx -= self.facing as f64;
                 }
             }
         }
-        if fd.dvy != 0.0 && (fd.dvy as i32) != global::UNSPECIFIED {
-            self.ps.vy = fd.dvy;
-        }
         if fd.dvz != 0.0 && (fd.dvz as i32) != global::UNSPECIFIED {
-            self.ps.vz = fd.dvz;
+            if fd.dvz == 550.0 {
+                self.ps.vz = 0.0;
+            } else {
+                // dirv applied by caller for characters; weapons use facing only on z rarely
+                self.ps.vz = fd.dvz; // character sets via dirv * dvz in state code
+            }
+        }
+        if fd.dvy != 0.0 && (fd.dvy as i32) != global::UNSPECIFIED {
+            if fd.dvy == 550.0 {
+                self.ps.vy = 0.0;
+            } else {
+                self.ps.vy += fd.dvy;
+            }
         }
     }
 
@@ -285,6 +304,9 @@ impl LivingObject {
             return;
         }
         self.recover_tu();
+        if !self.effect.stuck {
+            self.frame_force();
+        }
 
         // gravity when airborne
         if self.ps.y < 0.0 || self.ps.vy < 0.0 {
