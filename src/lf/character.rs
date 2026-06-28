@@ -378,7 +378,10 @@ impl Character {
                 // Firen / Freeze elementals — burning/ice states 18/19 via frame data
             }
             2 => {
-                // John heal / biscuit opoints in data
+                // John — shield frames use super (approx 110-120 range specials)
+                if (240..280).contains(&n) {
+                    self.base.effect.super_armor = true;
+                }
             }
             _ => {}
         }

@@ -242,6 +242,13 @@ impl LivingObject {
     }
 
     pub fn injure(&mut self, injury: f64, fall_add: f64, dvx: f64, dvy: f64, attacker_facing: i32) {
+        if injury < 0.0 {
+            self.hp = (self.hp - injury).min(self.hp_full);
+            return;
+        }
+        if self.effect.super_armor {
+            return;
+        }
         self.hp -= injury;
         self.injury_total += injury;
         self.fall += if fall_add != 0.0 { fall_add } else { global::DEFAULT_FALL };
