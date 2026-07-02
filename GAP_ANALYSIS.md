@@ -7,7 +7,7 @@
 Intentional non-goals (same limits as upstream F.LF v0.9.9):
 
 - Bit-identical per-TU memory dumps vs JS
-- Full LF2 stage campaign / Lee On Road background
+- Lee On Road background (not in LF2_19 package)
 - Hosting chrome identical to project-f.github.io layout
 
 ## Architecture notes

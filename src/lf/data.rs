@@ -33,6 +33,8 @@ pub struct DataList {
     pub UI: Option<Value>,
     #[serde(default)]
     pub properties: Option<Value>,
+    #[serde(default)]
+    pub stage: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default)]

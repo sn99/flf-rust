@@ -26,3 +26,4 @@ pub mod util_lf;
 pub mod touchcontroller;
 pub mod loader;
 pub mod util;
+pub mod stage;

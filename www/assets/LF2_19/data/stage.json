@@ -1,0 +1,1083 @@
+{
+  "version": 1,
+  "note": "Street campaign data for flf-rust (LF2 stage.dat semantics; original stage.dat not bundled).",
+  "difficulty": {
+    "easy": {
+      "hp": 0.75,
+      "times": 1.0
+    },
+    "normal": {
+      "hp": 1.0,
+      "times": 1.0
+    },
+    "difficult": {
+      "hp": 1.0,
+      "times": 1.0
+    },
+    "crazy": {
+      "hp": 1.5,
+      "times": 2.0
+    }
+  },
+  "stages": [
+    {
+      "id": 0,
+      "name": "Stage 1: HK Coliseum",
+      "background": 4,
+      "phases": [
+        {
+          "bound": 1100,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 40,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1320,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 50,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1540,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 50,
+              "times": 3,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1190,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 1760,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 60,
+              "times": 3,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1980,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 60,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 6,
+              "hp": 72,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2200,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 70,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1850,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 2420,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 5,
+              "ratio": 1.0
+            },
+            {
+              "id": 8,
+              "hp": 96,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2640,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 90,
+              "times": 5,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 2860,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 100,
+              "times": 6,
+              "ratio": 1.0
+            },
+            {
+              "id": 10,
+              "hp": 120,
+              "times": 1,
+              "ratio": 1
+            },
+            {
+              "id": 213,
+              "x": 2510,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 3080,
+          "spawns": [
+            {
+              "id": 11,
+              "hp": 250,
+              "times": 1,
+              "ratio": 1,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 125,
+              "times": 2,
+              "ratio": 1,
+              "soldier": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Stage 2: Lion Forest",
+      "background": 2,
+      "phases": [
+        {
+          "bound": 1100,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 50,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1320,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 60,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1540,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 60,
+              "times": 3,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1190,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 1760,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 70,
+              "times": 3,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1980,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 7,
+              "hp": 96,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2200,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 90,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1850,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 2420,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 100,
+              "times": 5,
+              "ratio": 1.0
+            },
+            {
+              "id": 9,
+              "hp": 120,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2640,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 110,
+              "times": 5,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 2860,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 120,
+              "times": 6,
+              "ratio": 1.0
+            },
+            {
+              "id": 11,
+              "hp": 144,
+              "times": 1,
+              "ratio": 1
+            },
+            {
+              "id": 213,
+              "x": 2510,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 3080,
+          "spawns": [
+            {
+              "id": 10,
+              "hp": 300,
+              "times": 1,
+              "ratio": 1,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 150,
+              "times": 3,
+              "ratio": 1,
+              "soldier": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Stage 3: Stanley Prison",
+      "background": 3,
+      "phases": [
+        {
+          "bound": 1100,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 60,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1320,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 70,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1540,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 3,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1190,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 1760,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 90,
+              "times": 3,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1980,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 100,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 8,
+              "hp": 120,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2200,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 110,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1850,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 2420,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 120,
+              "times": 5,
+              "ratio": 1.0
+            },
+            {
+              "id": 10,
+              "hp": 144,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2640,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 130,
+              "times": 5,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 2860,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 150,
+              "times": 6,
+              "ratio": 1.0
+            },
+            {
+              "id": 1,
+              "hp": 180,
+              "times": 1,
+              "ratio": 1
+            },
+            {
+              "id": 213,
+              "x": 2510,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 3080,
+          "spawns": [
+            {
+              "id": 9,
+              "hp": 350,
+              "times": 1,
+              "ratio": 1,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 175,
+              "times": 4,
+              "ratio": 1,
+              "soldier": true
+            },
+            {
+              "id": 4,
+              "hp": 140,
+              "times": 1,
+              "ratio": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "name": "Stage 4: Great Wall",
+      "background": 5,
+      "phases": [
+        {
+          "bound": 1100,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 70,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1320,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1540,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 90,
+              "times": 3,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1190,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 1760,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 100,
+              "times": 3,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1980,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 110,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 9,
+              "hp": 132,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2200,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 120,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1850,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 2420,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 140,
+              "times": 5,
+              "ratio": 1.0
+            },
+            {
+              "id": 11,
+              "hp": 168,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2640,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 160,
+              "times": 5,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 2860,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 180,
+              "times": 6,
+              "ratio": 1.0
+            },
+            {
+              "id": 2,
+              "hp": 216,
+              "times": 1,
+              "ratio": 1
+            },
+            {
+              "id": 213,
+              "x": 2510,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 3080,
+          "spawns": [
+            {
+              "id": 7,
+              "hp": 400,
+              "times": 1,
+              "ratio": 1,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 200,
+              "times": 5,
+              "ratio": 1,
+              "soldier": true
+            },
+            {
+              "id": 5,
+              "hp": 160,
+              "times": 1,
+              "ratio": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "name": "Stage 5: Forbidden Tower",
+      "background": 7,
+      "phases": [
+        {
+          "bound": 1100,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1320,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 90,
+              "times": 2,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1540,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 100,
+              "times": 3,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1190,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 1760,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 120,
+              "times": 3,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 1980,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 140,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 10,
+              "hp": 168,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2200,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 160,
+              "times": 4,
+              "ratio": 1.0
+            },
+            {
+              "id": 213,
+              "x": 1850,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 2420,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 180,
+              "times": 5,
+              "ratio": 1.0
+            },
+            {
+              "id": 1,
+              "hp": 216,
+              "times": 1,
+              "ratio": 1
+            }
+          ]
+        },
+        {
+          "bound": 2640,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 200,
+              "times": 5,
+              "ratio": 1.0
+            }
+          ]
+        },
+        {
+          "bound": 2860,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 220,
+              "times": 6,
+              "ratio": 1.0
+            },
+            {
+              "id": 4,
+              "hp": 264,
+              "times": 1,
+              "ratio": 1
+            },
+            {
+              "id": 213,
+              "x": 2510,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "bound": 3080,
+          "spawns": [
+            {
+              "id": 8,
+              "hp": 500,
+              "times": 1,
+              "ratio": 1,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 250,
+              "times": 6,
+              "ratio": 1,
+              "soldier": true
+            },
+            {
+              "id": 6,
+              "hp": 200,
+              "times": 1,
+              "ratio": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "name": "Survival",
+      "background": 1,
+      "phases": [
+        {
+          "bound": 1600,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 50,
+              "times": 2,
+              "ratio": 1
+            },
+            {
+              "id": 100,
+              "x": 1300,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ],
+          "when_clear_goto_phase": 1
+        },
+        {
+          "bound": 1800,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 65,
+              "times": 2,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 2
+        },
+        {
+          "bound": 2000,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 80,
+              "times": 2,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 3
+        },
+        {
+          "bound": 1600,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 95,
+              "times": 3,
+              "ratio": 1
+            },
+            {
+              "id": 5,
+              "hp": 145,
+              "times": 1,
+              "ratio": 1.0,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 47,
+              "times": 2,
+              "ratio": 1.0,
+              "soldier": true
+            },
+            {
+              "id": 100,
+              "x": 1300,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ],
+          "when_clear_goto_phase": 4
+        },
+        {
+          "bound": 1800,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 110,
+              "times": 3,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 5
+        },
+        {
+          "bound": 2000,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 125,
+              "times": 3,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 6
+        },
+        {
+          "bound": 1600,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 140,
+              "times": 4,
+              "ratio": 1
+            },
+            {
+              "id": 100,
+              "x": 1300,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ],
+          "when_clear_goto_phase": 7
+        },
+        {
+          "bound": 1800,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 155,
+              "times": 4,
+              "ratio": 1
+            },
+            {
+              "id": 9,
+              "hp": 205,
+              "times": 1,
+              "ratio": 1.0,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 77,
+              "times": 2,
+              "ratio": 1.0,
+              "soldier": true
+            }
+          ],
+          "when_clear_goto_phase": 8
+        },
+        {
+          "bound": 2000,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 170,
+              "times": 4,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 9
+        },
+        {
+          "bound": 1600,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 185,
+              "times": 5,
+              "ratio": 1
+            },
+            {
+              "id": 100,
+              "x": 1300,
+              "times": 1,
+              "ratio": 1.0,
+              "kind": "object"
+            }
+          ],
+          "when_clear_goto_phase": 10
+        },
+        {
+          "bound": 1800,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 200,
+              "times": 5,
+              "ratio": 1
+            }
+          ],
+          "when_clear_goto_phase": 11
+        },
+        {
+          "bound": 2000,
+          "spawns": [
+            {
+              "id": 30,
+              "hp": 215,
+              "times": 5,
+              "ratio": 1
+            },
+            {
+              "id": 2,
+              "hp": 265,
+              "times": 1,
+              "ratio": 1.0,
+              "boss": true
+            },
+            {
+              "id": 30,
+              "hp": 107,
+              "times": 2,
+              "ratio": 1.0,
+              "soldier": true
+            }
+          ],
+          "when_clear_goto_phase": 0
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,9 @@ use crate::lf::global;
 use crate::lf::mechanics::Mech;
 use crate::lf::package::Package;
 use crate::lf::specialattack::SpecialAttack;
+use crate::lf::stage::{
+    PendingSpawn, SpawnKind, StageAdvance, StageFile, StagePhaseState, StageRuntime,
+};
 use crate::lf::weapon::Weapon;
 use serde_json::Value;
 use std::cell::RefCell;
@@ -78,6 +81,12 @@ pub struct Match {
     pub f6_mode: bool,
     /// Basenames of AI scripts from LF2_19 AI list (e.g. dumbass, Crusher)
     pub ai_script_pool: Vec<String>,
+    /// Street campaign runtime
+    pub stage: Option<StageRuntime>,
+    /// stage join metadata: enemy uid -> join hp
+    pub stage_join_hp: std::collections::HashMap<u32, f64>,
+    pub stage_floor_xbound: bool,
+    package_backgrounds: std::collections::HashMap<i32, Value>,
 }
 
 impl Match {
@@ -247,7 +256,36 @@ impl Match {
                     if name.is_empty() { None } else { Some(name.to_string()) }
                 })
                 .collect(),
+            stage: None,
+            stage_join_hp: std::collections::HashMap::new(),
+            stage_floor_xbound: false,
+            package_backgrounds: package.backgrounds.clone(),
         })
+    }
+
+    /// Start street campaign on an existing match setup (humans already spawned).
+    pub fn attach_stage(
+        &mut self,
+        file: StageFile,
+        chapter_index: usize,
+        human_count: usize,
+        difficulty: i8,
+        package: &Package,
+    ) {
+        if let Some(rt) = StageRuntime::start(file, chapter_index, human_count, difficulty) {
+            if let Some(def) = rt.stage_def() {
+                if let Some(bg) = package.backgrounds.get(&def.background) {
+                    self.background = Background::from_json(def.background, bg);
+                }
+            }
+            self.stage = Some(rt);
+            self.stage_floor_xbound = true;
+            self.demo_mode = false;
+            self.flush_stage_pending(Some(package));
+            if let Some(st) = &self.stage {
+                self.overlay_message(&st.label());
+            }
+        }
     }
 
     /// F.LF match.game_state — identity snapshot for lockstep verify / TU dumps
@@ -462,8 +500,10 @@ impl Match {
         self.update_camera();
         self.background.tu(self.time);
         self.sound.tu();
+        self.tick_stage();
         self.check_game_over();
         self.apply_leaving();
+        self.apply_stage_xbound();
 
         // AI at end of TU (F.LF) — keys apply next TU via pending_ai_keys
         self.run_ai_end_of_tu(bg_z, bg_w);
@@ -2873,6 +2913,12 @@ impl Match {
         let mut max_x = f64::MIN;
         let mut any = false;
         for ch in &self.characters {
+            if ch.base.removed || ch.base.team == 2 {
+                // follow allies / humans primarily in stage mode
+                if self.stage.is_some() && ch.base.team != 1 {
+                    continue;
+                }
+            }
             if ch.base.removed {
                 continue;
             }
@@ -2884,15 +2930,278 @@ impl Match {
             return;
         }
         let mid = (min_x + max_x) / 2.0;
-        let target = (mid - global::WINDOW_WIDTH / 2.0)
-            .max(0.0)
-            .min((self.background.width - global::WINDOW_WIDTH).max(0.0));
+        let mut max_scroll = (self.background.width - global::WINDOW_WIDTH).max(0.0);
+        if let Some(st) = &self.stage {
+            max_scroll = (st.bound - global::WINDOW_WIDTH).max(0.0).min(max_scroll);
+        }
+        let target = (mid - global::WINDOW_WIDTH / 2.0).max(0.0).min(max_scroll);
         self.camera_x += (target - self.camera_x) * global::CAMERA_SPEED_FACTOR * 4.0;
+    }
+
+    fn apply_stage_xbound(&mut self) {
+        if !self.stage_floor_xbound {
+            return;
+        }
+        let bound = self.stage.as_ref().map(|s| s.bound).unwrap_or(self.background.width);
+        let cam_left = self.camera_x;
+        for ch in &mut self.characters {
+            if ch.base.removed || ch.base.team == 2 {
+                continue;
+            }
+            if ch.base.ps.x < cam_left + 30.0 {
+                ch.base.ps.x = cam_left + 30.0;
+            }
+            if ch.base.ps.x > bound - 20.0 {
+                ch.base.ps.x = bound - 20.0;
+            }
+        }
+    }
+
+    fn flush_stage_pending(&mut self, package: Option<&Package>) {
+        let pending: Vec<PendingSpawn> = self
+            .stage
+            .as_mut()
+            .map(|s| std::mem::take(&mut s.pending))
+            .unwrap_or_default();
+        let (z0, z1) = self.background.zboundary;
+        for p in pending {
+            let z = z0 + p.z.clamp(0.05, 0.95) * (z1 - z0);
+            match p.kind {
+                SpawnKind::Object => {
+                    if let Some(data) = self.package_objects.get(&p.id).cloned() {
+                        let mut w = Weapon::new(self.next_uid, data, p.x, z);
+                        self.next_uid += 1;
+                        w.base.ps.y = -200.0;
+                        w.base.ps.vy = 8.0;
+                        self.weapons.push(w);
+                    }
+                }
+                SpawnKind::Enemy => {
+                    let data = self
+                        .package_objects
+                        .get(&p.id)
+                        .cloned()
+                        .or_else(|| {
+                            package.and_then(|pk| pk.objects.get(&p.id).cloned())
+                        });
+                    let Some(data) = data else { continue };
+                    let mut ch = Character::new(self.next_uid, data, p.team, p.x.min(self.background.width - 10.0), z);
+                    self.next_uid += 1;
+                    ch.base.ai = true;
+                    ch.base.name = if p.name.is_empty() {
+                        ch.base.data.bmp.name.clone()
+                    } else {
+                        format!("{} {}", p.name, ch.base.data.bmp.name)
+                    };
+                    if p.hp > 0.0 {
+                        ch.base.hp = p.hp;
+                        ch.base.hp_full = p.hp;
+                        ch.base.hp_bound = p.hp;
+                    }
+                    ch.base.facing = -1;
+                    ch.base.properties = self.properties.clone();
+                    let uid = ch.base.uid;
+                    if let Some(jhp) = p.join_hp {
+                        self.stage_join_hp.insert(uid, jhp);
+                    }
+                    let mut brain = crate::lf::ai::AiBrain::default();
+                    brain.script_name = self
+                        .ai_script_pool
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "dumbass".into());
+                    if let Some(st) = &self.stage {
+                        brain.difficulty = st.difficulty;
+                    }
+                    self.ai_brains.push(brain);
+                    if let Some(st) = self.stage.as_mut() {
+                        st.register_enemy(uid, p.boss);
+                    }
+                    self.characters.push(ch);
+                }
+            }
+        }
+    }
+
+    fn sync_stage_enemy_list(&mut self) {
+        let mut dead = vec![];
+        if let Some(st) = &self.stage {
+            for &uid in &st.enemy_uids {
+                let alive = self.characters.iter().any(|c| {
+                    c.base.uid == uid && !c.base.removed && c.base.hp > 0.0 && !c.base.dead
+                });
+                if !alive {
+                    dead.push(uid);
+                }
+            }
+        }
+        for uid in dead {
+            let join = self.stage_join_hp.remove(&uid);
+            if let Some(st) = self.stage.as_mut() {
+                st.on_enemy_removed(uid, join);
+            }
+            // convert corpse to ally if join
+            if let Some(jhp) = join {
+                if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == uid) {
+                    ch.base.removed = false;
+                    ch.base.dead = false;
+                    ch.base.team = 1;
+                    ch.base.hp = jhp;
+                    ch.base.hp_full = jhp;
+                    ch.base.hp_bound = jhp;
+                    ch.base.counter_disappear = -1;
+                    ch.base.trans_frame(0, 0);
+                    ch.is_npc = false;
+                    ch.base.name = format!("Ally {}", ch.base.data.bmp.name);
+                }
+            }
+        }
+    }
+
+    fn tick_stage(&mut self) {
+        if self.stage.is_none() || self.game_over {
+            return;
+        }
+        self.sync_stage_enemy_list();
+        self.flush_stage_pending(None);
+        let bosses_alive = self
+            .stage
+            .as_ref()
+            .map(|s| {
+                s.boss_uids.iter().any(|&uid| {
+                    self.characters.iter().any(|c| {
+                        c.base.uid == uid && !c.base.removed && c.base.hp > 0.0
+                    })
+                })
+            })
+            .unwrap_or(false);
+        let (z0, z1) = self.background.zboundary;
+        let z_ratio = 0.5;
+        let soldiers = self
+            .stage
+            .as_mut()
+            .map(|s| s.maybe_spawn_soldiers(bosses_alive, z_ratio))
+            .unwrap_or_default();
+        if let Some(st) = self.stage.as_mut() {
+            st.pending.extend(soldiers);
+            st.tick_messages();
+            if st.message_ttl > 0 {
+                self.overlay_msg = st.message.clone();
+                self.overlay_ttl = st.message_ttl.min(90);
+            }
+        }
+        self.flush_stage_pending(None);
+        let _ = (z0, z1);
+
+        let cleared = self
+            .stage
+            .as_ref()
+            .map(|s| s.enemies_cleared())
+            .unwrap_or(false);
+        if cleared {
+            if let Some(st) = self.stage.as_mut() {
+                if st.state == StagePhaseState::Fighting {
+                    st.enter_go();
+                    self.overlay_message("GO!");
+                }
+            }
+        }
+
+        let mut should_advance = false;
+        if let Some(st) = &self.stage {
+            if st.state == StagePhaseState::Go {
+                let bound = st.bound;
+                should_advance = self.characters.iter().any(|c| {
+                    !c.base.removed
+                        && c.base.team == 1
+                        && c.base.hp > 0.0
+                        && c.base.ps.x >= bound - 80.0
+                });
+                // auto-advance after delay if player is idle near edge
+                if !should_advance {
+                    // handled via go_timer below
+                }
+            }
+        }
+        if let Some(st) = self.stage.as_mut() {
+            if st.state == StagePhaseState::Go {
+                st.go_timer += 1;
+                if st.go_timer > 600 {
+                    should_advance = true;
+                }
+            }
+        }
+        if should_advance {
+            self.advance_stage_phase();
+        }
+    }
+
+    fn advance_stage_phase(&mut self) {
+        let adv = if let Some(st) = self.stage.as_mut() {
+            st.advance()
+        } else {
+            return;
+        };
+        match adv {
+            StageAdvance::NextPhase {
+                background,
+                reload_background,
+            } => {
+                if reload_background {
+                    if let Some(bg) = self.package_backgrounds.get(&background).cloned() {
+                        self.background = Background::from_json(background, &bg);
+                    }
+                    self.overlay_message("Stage clear!");
+                }
+                self.camera_x = 0.0;
+                // reposition humans at left
+                let (z0, z1) = self.background.zboundary;
+                let mid_z = (z0 + z1) / 2.0;
+                for ch in &mut self.characters {
+                    if ch.base.team == 1 && !ch.base.removed {
+                        ch.base.ps.x = 120.0;
+                        ch.base.ps.z = mid_z;
+                        ch.base.ps.vx = 0.0;
+                        ch.base.facing = 1;
+                    } else if ch.base.team == 2 {
+                        ch.base.removed = true;
+                    }
+                }
+                self.characters.retain(|c| c.base.team != 2 || !c.base.removed);
+                self.flush_stage_pending(None);
+                if let Some(st) = &self.stage {
+                    self.overlay_message(&st.label());
+                }
+            }
+            StageAdvance::CampaignComplete => {
+                self.finish_gameover(Some(1));
+                self.overlay_message("Street campaign complete!");
+            }
+        }
     }
 
     /// F.LF check_gameover — arm gameover_state, fire gameover at t+30
     fn check_game_over(&mut self) {
         if self.demo_mode {
+            return;
+        }
+        if let Some(st) = &self.stage {
+            if st.state == StagePhaseState::Complete {
+                return;
+            }
+            // stage: fail only if all team-1 humans/allies dead
+            let allies_alive = self.characters.iter().any(|c| {
+                c.base.team == 1 && !c.base.removed && c.base.hp > 0.0 && !c.base.dead
+            });
+            if !allies_alive && self.time > 90 {
+                if self.gameover_state.is_none() {
+                    self.gameover_state = Some(self.time);
+                } else if gameover_fires_at(self.time, self.gameover_state) {
+                    self.finish_gameover(Some(2));
+                }
+            } else {
+                self.gameover_state = None;
+            }
             return;
         }
         let mut teams = std::collections::HashSet::new();
@@ -2908,7 +3217,6 @@ impl Match {
                 self.finish_gameover(teams.into_iter().next());
             }
         } else if self.gameover_state.is_some() {
-            // more than one team alive again — cancel (F.LF clears and still calls gameover)
             self.gameover_state = None;
         }
     }
@@ -3078,6 +3386,13 @@ impl Match {
             self.overlay_ttl -= 1;
         }
 
+        if let Some(st) = &self.stage {
+            ren.fill_text(&st.label(), 12.0, 70.0, "#ff0", "bold 14px sans-serif");
+            if st.state == StagePhaseState::Go {
+                ren.fill_text("GO!", 360.0, 200.0, "#0f0", "bold 48px sans-serif");
+            }
+            ren.fill_rect_color(st.bound - ren.cam_x, 80.0, 3.0, 320.0, "rgba(0,255,0,0.35)");
+        }
         if self.paused {
             ren.fill_rect_color(0.0, 180.0, ren.width, 40.0, "rgba(0,0,0,0.5)");
             ren.fill_text("PAUSED", 360.0, 208.0, "#fff", "bold 28px sans-serif");

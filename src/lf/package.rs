@@ -18,6 +18,7 @@ pub struct Package {
     pub resourcemap: ResourceMap,
     pub manifest: Value,
     pub sound_meta: Value,
+    pub stage: Option<crate::lf::stage::StageFile>,
 }
 
 impl Package {
@@ -72,6 +73,7 @@ impl Package {
             resourcemap,
             manifest,
             sound_meta: Value::Null,
+            stage: None,
         };
 
         // Preload all non-lazy objects (weapons, effects, drinks, etc.)
@@ -102,10 +104,21 @@ impl Package {
             pkg.sound_meta = sm;
         }
 
+        // street campaign (stage.dat JSON)
+        if let Some(st) = &pkg.data_list.stage {
+            let file = st.get("file").and_then(|f| f.as_str()).unwrap_or("data/stage.json");
+            if let Ok(v) = fetch_json(&format!("{}/{}", root, file)).await {
+                pkg.stage = Some(crate::lf::stage::StageFile::from_json(&v));
+            }
+        } else if let Ok(v) = fetch_json(&format!("{}/data/stage.json", root)).await {
+            pkg.stage = Some(crate::lf::stage::StageFile::from_json(&v));
+        }
+
         log(&format!(
-            "package loaded: {} objects, {} backgrounds",
+            "package loaded: {} objects, {} backgrounds, stage={}",
             pkg.objects.len(),
-            pkg.backgrounds.len()
+            pkg.backgrounds.len(),
+            pkg.stage.as_ref().map(|s| s.stages.len()).unwrap_or(0)
         ));
         Ok(pkg)
     }

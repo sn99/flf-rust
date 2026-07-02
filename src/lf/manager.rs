@@ -21,6 +21,7 @@ enum Screen {
     CharacterSelect,
     ComputerCount,
     VsDialog,
+    StageDialog,
     Settings,
     Network,
     Gameplay,
@@ -54,6 +55,10 @@ pub struct Manager {
     rebind_target: Option<(usize, String)>,
     /// F4 cycles: normal → wide → maximize-ish
     view_mode: u8,
+    /// Street campaign entry
+    stage_mode: bool,
+    stage_chapter: usize,
+    stage_cursor: usize,
 }
 
 #[derive(Clone)]
@@ -184,6 +189,9 @@ impl Manager {
             running: Rc::new(Cell::new(true)),
             rebind_target: None,
             view_mode: 0,
+            stage_mode: false,
+            stage_chapter: 0,
+            stage_cursor: 0,
         };
         // apply UI bg colors
         if let Some(fp) = util::div_class("frontpage") {
@@ -214,7 +222,13 @@ impl Manager {
         show_cls("frontpage", s == Screen::FrontPage);
         show_cls(
             "character_selection",
-            matches!(s, Screen::CharacterSelect | Screen::ComputerCount | Screen::VsDialog),
+            matches!(
+                s,
+                Screen::CharacterSelect
+                    | Screen::ComputerCount
+                    | Screen::VsDialog
+                    | Screen::StageDialog
+            ),
         );
         show_cls("settings", s == Screen::Settings);
         show_cls("network_game", s == Screen::Network);
@@ -225,9 +239,61 @@ impl Manager {
             Screen::CharacterSelect => self.render_charselect_dom(),
             Screen::ComputerCount => self.render_computer_dom(),
             Screen::VsDialog => self.render_vs_dom(),
+            Screen::StageDialog => self.render_stage_dom(),
             Screen::Settings => self.render_settings_dom(),
             Screen::Network => self.render_network_dom(),
             Screen::Gameplay => {}
+        }
+    }
+
+    fn render_stage_dom(&self) {
+        let root = &self.package.root;
+        let stage_file = self.package.stage.as_ref();
+        let chapters: Vec<_> = stage_file
+            .map(|s| s.stages.iter().filter(|st| st.id < 50).collect())
+            .unwrap_or_default();
+        let survival = stage_file.and_then(|s| s.stages.iter().find(|st| st.id >= 50));
+        let diff = match self.difficulty {
+            d if d < 0 => "CRAZY!",
+            0 => "Difficult",
+            1 => "Normal",
+            _ => "Easy",
+        };
+        let mut html = format!(
+            r#"<div class="cs_stage dim"><img class="cs_bg" src="{root}/UI/character_selection.png" alt=""/>
+            <div class="stage_panel" style="position:absolute;left:190px;top:100px;width:420px;padding:16px;background:rgba(0,20,60,0.94);border:2px solid #5af;color:#def;font:14px sans-serif;z-index:5;">
+            <h2 style="margin:0 0 8px;color:#ff0;">Street Campaign</h2>
+            <p style="margin:4px 0;">Difficulty: <b id="stage_diff_label">{diff}</b></p><div>"#
+        );
+        for (i, st) in chapters.iter().enumerate() {
+            let sel = i == self.stage_chapter;
+            html.push_str(&format!(
+                r#"<button type="button" class="menu_hit stage_pick" data-stage="{i}" style="display:block;width:100%;text-align:left;margin:3px 0;padding:6px 8px;background:{bg};color:{fg};border:1px solid #456;cursor:pointer;">{name} — {n} phases</button>"#,
+                bg = if sel { "#1a3a8a" } else { "transparent" },
+                fg = if sel { "#fff" } else { "#8af" },
+                name = st.name,
+                n = st.phases.len(),
+            ));
+        }
+        if let Some(sv) = survival {
+            let i = chapters.len();
+            let sel = self.stage_chapter == i;
+            html.push_str(&format!(
+                r#"<button type="button" class="menu_hit stage_pick" data-stage="{i}" style="display:block;width:100%;text-align:left;margin:3px 0;padding:6px 8px;background:{bg};color:{fg};border:1px solid #456;cursor:pointer;">{name}</button>"#,
+                bg = if sel { "#1a3a8a" } else { "transparent" },
+                fg = if sel { "#fff" } else { "#8af" },
+                name = sv.name,
+            ));
+        }
+        html.push_str(
+            r#"</div><p style="margin:10px 0 4px;font-size:12px;color:#9ab;">Select chapter, then your fighter. Defeat each wave and walk right on <b>GO!</b></p>
+            <button type="button" class="menu_hit" data-i="30" style="margin-top:8px;padding:8px 16px;background:#2a6;color:#fff;border:0;cursor:pointer;">Choose fighter</button>
+            <button type="button" class="menu_hit" data-i="32" style="margin-top:8px;margin-left:8px;padding:8px 16px;background:#258;color:#fff;border:0;cursor:pointer;">Difficulty</button>
+            <button type="button" class="menu_hit" data-i="31" style="margin-top:8px;margin-left:8px;padding:8px 16px;background:#444;color:#fff;border:0;cursor:pointer;">Back</button>
+            </div></div>"#,
+        );
+        if let Some(el) = util::div_class("character_selection") {
+            el.set_inner_html(&html);
         }
     }
 
@@ -251,8 +317,8 @@ impl Manager {
                 <button type="button" class="menu_hit" data-i="1" style="top:45px;height:26px;" title="network"></button>
                 <button type="button" class="menu_hit" data-i="2" style="top:76px;height:27px;" title="settings"></button>
               </div>
-              <button type="button" class="menu_hit stage_entry" data-i="3" style="position:absolute;left:8px;bottom:8px;width:120px;height:22px;opacity:0.01;" title="stage mode"></button>
-              <button type="button" class="menu_hit demo_entry" data-i="4" style="position:absolute;right:8px;bottom:8px;width:100px;height:22px;opacity:0.01;" title="demo mode"></button>
+              <button type="button" class="menu_hit stage_entry" data-i="3" style="position:absolute;left:12px;bottom:12px;padding:6px 10px;background:rgba(0,40,100,0.85);color:#9cf;border:1px solid #48f;cursor:pointer;font:12px sans-serif;" title="stage mode">Street Campaign</button>
+              <button type="button" class="menu_hit demo_entry" data-i="4" style="position:absolute;right:12px;bottom:12px;padding:6px 10px;background:rgba(0,40,100,0.85);color:#9cf;border:1px solid #48f;cursor:pointer;font:12px sans-serif;" title="demo mode">Demo</button>
             </div>"#
         );
         if let Some(el) = util::div_class("frontpage_content") {
@@ -614,7 +680,73 @@ impl Manager {
         }
     }
 
+    fn start_stage_match(&mut self) {
+        let Some(stage_file) = self.package.stage.clone() else {
+            self.alert("Stage data missing.");
+            return;
+        };
+        let chapter = self.stage_chapter.min(stage_file.stages.len().saturating_sub(1));
+        let bg = stage_file
+            .chapter(chapter)
+            .map(|c| c.background)
+            .unwrap_or(self.selected_bg);
+        let mut players = vec![];
+        for (i, slot) in self.slots.iter().enumerate() {
+            if !slot.joined {
+                continue;
+            }
+            let id = self.resolve_char_id(slot);
+            players.push(PlayerSetup {
+                id,
+                team: 1,
+                controller_index: Some(i.min(1)),
+                is_ai: false,
+                name: slot.player_name.clone(),
+            });
+        }
+        if players.is_empty() {
+            let id = self
+                .package
+                .characters()
+                .first()
+                .map(|c| c.id)
+                .unwrap_or(11);
+            players.push(PlayerSetup {
+                id,
+                team: 1,
+                controller_index: Some(0),
+                is_ai: false,
+                name: "Player1".into(),
+            });
+        }
+        let humans = players.len();
+        match Match::create(
+            &self.package,
+            players,
+            bg,
+            self.controllers.clone(),
+            false,
+        ) {
+            Ok(mut m) => {
+                m.attach_stage(stage_file, chapter, humans, self.difficulty, &self.package);
+                for b in &mut m.ai_brains {
+                    b.difficulty = self.difficulty;
+                }
+                self.match_game = Some(m);
+                self.show_screen(Screen::Gameplay);
+            }
+            Err(e) => {
+                self.alert(&e);
+                util::error(&e);
+            }
+        }
+    }
+
     fn start_match(&mut self) {
+        if self.stage_mode {
+            self.start_stage_match();
+            return;
+        }
         let mut players = vec![];
         for (i, slot) in self.slots.iter().enumerate() {
             if !slot.joined && !slot.is_com {
@@ -726,7 +858,20 @@ impl Manager {
                     }
                     el = e.parent_element().and_then(|p| p.dyn_into().ok());
                 }
+                let mut data_stage = None::<String>;
+                let mut walk_st = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
+                while let Some(e) = walk_st {
+                    if data_stage.is_none() {
+                        data_stage = e.get_attribute("data-stage");
+                    }
+                    walk_st = e.parent_element().and_then(|p| p.dyn_into().ok());
+                }
                 let mut g = mgr2.borrow_mut();
+                if let Some(si) = data_stage.and_then(|s| s.parse::<usize>().ok()) {
+                    g.stage_chapter = si;
+                    g.stage_mode = true;
+                    g.render_stage_dom();
+                }
                 // player name edit (settings keychanger)
                 let mut walk_pn = ev.target().and_then(|e| e.dyn_into::<HtmlElement>().ok());
                 while let Some(e) = walk_pn.clone() {
@@ -757,21 +902,41 @@ impl Manager {
                 }
                 if let Some(i) = data_i.and_then(|s| s.parse::<i32>().ok()) {
                     match i {
-                        0 => g.show_screen(Screen::CharacterSelect),
+                        0 => {
+                            g.stage_mode = false;
+                            g.show_screen(Screen::CharacterSelect);
+                        }
                         1 => {
                             g.network.append_log("Network: F.Lobby 0.1 protocol + Peer/BC lockstep.");
                             g.show_screen(Screen::Network);
                         }
                         2 => g.show_screen(Screen::Settings),
                         3 => {
-                            // Stage mode shell — spawn VS with more COMs (LF2 stage-ish)
-                            g.alert("Stage mode (shell): starting 4 COM battle.");
-                            g.num_computers = 4;
-                            g.computer_cursor = 4;
-                            for s in &mut g.slots {
-                                s.joined = true;
+                            g.stage_mode = true;
+                            g.stage_chapter = 0;
+                            g.num_computers = 0;
+                            if g.package.stage.is_none() {
+                                g.alert("No stage data in package (data/stage.json).");
+                            } else {
+                                g.show_screen(Screen::StageDialog);
                             }
-                            g.start_match();
+                        }
+                        30 => {
+                            g.stage_mode = true;
+                            g.show_screen(Screen::CharacterSelect);
+                        }
+                        31 => {
+                            g.stage_mode = false;
+                            g.show_screen(Screen::FrontPage);
+                        }
+                        32 => {
+                            g.difficulty = match g.difficulty {
+                                d if d < 0 => 0,
+                                0 => 1,
+                                1 => 2,
+                                _ => -1,
+                            };
+                            g.render_stage_dom();
                         }
                         4 => {
                             // F.LF start_demo — two AI fighters, no gameover panel pressure
@@ -925,7 +1090,11 @@ impl Manager {
                     }
                     Screen::CharacterSelect => {
                         if k == "escape" {
-                            g.show_screen(Screen::FrontPage);
+                            if g.stage_mode {
+                                g.show_screen(Screen::StageDialog);
+                            } else {
+                                g.show_screen(Screen::FrontPage);
+                            }
                         } else if k == "a" {
                             g.cycle_char(0, -1);
                         } else if k == "d" {
@@ -936,19 +1105,54 @@ impl Manager {
                             g.cycle_char(1, 1);
                         } else if k == "s" {
                             g.slots[0].joined = true;
+                            g.slots[0].team = if g.stage_mode { 1 } else { g.slots[0].team };
                             g.render_charselect_dom();
                         } else if k == "j" {
                             if g.slots.len() > 1 {
                                 g.slots[1].joined = true;
+                                if g.stage_mode {
+                                    g.slots[1].team = 1;
+                                }
                             }
                             g.render_charselect_dom();
                         } else if k == "q" || k == "i" || k == "enter" {
-                            // need at least one joined
                             if g.slots.iter().any(|s| s.joined) {
-                                g.show_screen(Screen::ComputerCount);
+                                if g.stage_mode {
+                                    g.start_stage_match();
+                                } else {
+                                    g.show_screen(Screen::ComputerCount);
+                                }
                             }
                         } else if k == "f2" {
                             g.num_computers += 1;
+                        }
+                    }
+                    Screen::StageDialog => {
+                        if k == "escape" {
+                            g.stage_mode = false;
+                            g.show_screen(Screen::FrontPage);
+                        } else if k == "arrowup" || k == "w" {
+                            g.stage_chapter = g.stage_chapter.saturating_sub(1);
+                            g.render_stage_dom();
+                        } else if k == "arrowdown" || k == "x" {
+                            let max = g
+                                .package
+                                .stage
+                                .as_ref()
+                                .map(|s| s.stages.len().saturating_sub(1))
+                                .unwrap_or(0);
+                            g.stage_chapter = (g.stage_chapter + 1).min(max);
+                            g.render_stage_dom();
+                        } else if k == "enter" || k == "s" || k == "j" {
+                            g.show_screen(Screen::CharacterSelect);
+                        } else if k == "d" {
+                            g.difficulty = match g.difficulty {
+                                d if d < 0 => 0,
+                                0 => 1,
+                                1 => 2,
+                                _ => -1,
+                            };
+                            g.render_stage_dom();
                         }
                     }
                     Screen::ComputerCount => {
