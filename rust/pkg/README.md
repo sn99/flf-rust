@@ -1,30 +1,30 @@
-# F.LF — Little Fighter (Rust port + hosted original)
+# F.LF — Little Fighter (Rust port)
 
-## Play (same as Project F)
+Rust/WASM rewrite of [Project-F/F.LF](https://github.com/Project-F/F.LF) with [LF2_19](https://github.com/Project-F/LF2_19) content (JSON package: [sn99/LF2_19](https://github.com/sn99/LF2_19)).
 
-**https://sn99.github.io/flf-rust/** → redirects to **game/game.html**
+## Play
 
-This is the **original [F.LF](https://github.com/Project-F/F.LF)** engine with **[LF2_19](https://github.com/Project-F/LF2_19)** assets — behaviour matches:
+**https://sn99.github.io/flf-rust/** — Pages deploy serves the classic JS engine at `game/game.html` for reference parity with https://project-f.github.io/F.LF/game/game.html.
 
-https://project-f.github.io/F.LF/game/game.html
-
-| Path | What |
-|------|------|
-| [/](https://sn99.github.io/flf-rust/) | Entry → original F.LF |
-| [/game/game.html](https://sn99.github.io/flf-rust/game/game.html) | Canonical game |
-| [/rust/](https://sn99.github.io/flf-rust/rust/) | Experimental **Rust/WASM** rewrite (in progress) |
-
-## Repos
-
-- **This repo** — Rust engine source (`src/`), Pages deploy (F.LF + LF2_19 on `gh-pages`)
-- **[sn99/LF2_19](https://github.com/sn99/LF2_19)** — JSON content package for the Rust loader
-
-## Build Rust WASM (optional)
+Local Rust/WASM build:
 
 ```bash
 wasm-pack build --target web --out-dir www/pkg --release
 cd www && python3 -m http.server 8080
+# open http://localhost:8080/
 ```
+
+## Layout
+
+| Path | Contents |
+|------|----------|
+| `src/core_engine/` | Port of `F.LF/core` |
+| `src/lf/` | Port of `F.LF/LF` |
+| `www/` | Shell HTML/CSS/JS glue + assets |
+| `tools/` | Data converter, decrypt, unit test suite, AI parser (from F.LF) |
+| `tests/` | Parity integration tests |
+
+`cargo test` runs shipped-path parity checks. See `PORT_STATUS.md` and `GAP_ANALYSIS.md`.
 
 ## Credits
 

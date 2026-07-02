@@ -23,10 +23,8 @@
         console.log(util.div('projectFmessage').innerHTML);
 
         if (flf_config.package.indexOf('http') === 0) {
-            var pp = flf_config.package;
-            if (pp.slice(-1) !== '/') { pp += '/'; }
-            package.path = pp;
-            package.location = pp;
+            package.path = flf_config.package;
+            package.location = flf_config.package;
         } else {
             package.path = util.normalize_path(flf_config.package);
             package.location = util.normalize_path(flf_config.root + flf_config.package);
