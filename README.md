@@ -20,7 +20,7 @@ cd www && python3 -m http.server 8080
 # open http://localhost:8080/
 ```
 
-Push to `main` runs CI. Update `gh-pages` (classic `/game` + `/rust` mirror of `www/`) when shipping the public site.
+Push to `main` runs CI and deploys GitHub Pages (classic `/game` + `/rust` mirror of `www/`).
 
 ## Layout
 
