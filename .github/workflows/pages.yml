@@ -36,6 +36,8 @@ jobs:
           mkdir -p "$SITE" "$SITE/rust"
           git clone --depth 1 https://github.com/Project-F/F.LF.git "${RUNNER_TEMP}/F.LF"
           git clone --depth 1 https://github.com/Project-F/LF2_19.git "${RUNNER_TEMP}/LF2_19"
+          # Strip nested .git so Pages legacy checkout does not treat paths as submodules
+          rm -rf "${RUNNER_TEMP}/F.LF/.git" "${RUNNER_TEMP}/LF2_19/.git"
           cp -a "${RUNNER_TEMP}/F.LF/core" "$SITE/"
           cp -a "${RUNNER_TEMP}/F.LF/LF" "$SITE/"
           cp -a "${RUNNER_TEMP}/F.LF/game" "$SITE/"
@@ -43,6 +45,7 @@ jobs:
           cp -a "${RUNNER_TEMP}/LF2_19" "$SITE/LF2_19"
           cp -a www/. "$SITE/rust/"
           rm -f "$SITE/rust/pkg/.gitignore"
+          find "$SITE" -name .git -type d -prune -exec rm -rf {} +
           printf '%s\n' \
             '<!DOCTYPE html><html><head><meta charset=UTF-8>' \
             '<meta http-equiv=refresh content="0;url=game/game.html">' \
