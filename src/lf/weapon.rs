@@ -9,6 +9,8 @@ pub struct Weapon {
     pub light: bool,
     pub heavy: bool,
     pub holder_uid: Option<u32>,
+    /// F.LF hold.pre — holder that receives attacked/killed credit
+    pub hold_pre_uid: Option<u32>,
 }
 
 impl Weapon {
@@ -21,6 +23,7 @@ impl Weapon {
             light,
             heavy,
             holder_uid: None,
+            hold_pre_uid: None,
         };
         w.base.hp = w.base.data.bmp.weapon_hp.max(1.0);
         w.base.hp_full = w.base.hp;
@@ -44,27 +47,38 @@ impl Weapon {
         crate::lf::weapon_states::dispatch(self, "TU");
         self.base.physics_tu(bg_z, bg_w);
 
-        // just landed
+        // just landed — F.LF weapon.js generic TU (bounceup / settle)
         if self.base.ps.y >= 0.0 && vy_before > 0.0 && y_before < 0.0 {
-            self.base.team = 0;
             let speed = (self.base.ps.vx * self.base.ps.vx
                 + vy_before * vy_before
                 + self.base.ps.vz * self.base.ps.vz)
                 .sqrt();
-            let limit = 8.0;
-            if speed > limit {
+            if speed > global::WEAPON_BOUNCEUP_LIMIT {
                 if self.light {
                     self.base.ps.vy = 0.0;
                     self.base.trans_frame(70, 5);
                 }
                 if self.heavy {
-                    self.base.ps.vy = -3.7;
-                    self.base.ps.vx = self.base.ps.vx.signum() * 3.0;
-                    self.base.ps.vz = self.base.ps.vz.signum() * 1.5;
+                    self.base.ps.vy = global::WEAPON_BOUNCEUP_SPEED_Y;
                 }
-                // weapon_drop_hurt if in bmp — skip optional field
+                if self.base.ps.vx != 0.0 {
+                    self.base.ps.vx =
+                        self.base.ps.vx.signum() * global::WEAPON_BOUNCEUP_SPEED_X;
+                }
+                if self.base.ps.vz != 0.0 {
+                    self.base.ps.vz =
+                        self.base.ps.vz.signum() * global::WEAPON_BOUNCEUP_SPEED_Z;
+                }
+                let hurt = self.base.data.bmp.weapon_drop_hurt;
+                if hurt > 0.0 {
+                    self.base.hp -= hurt;
+                    if self.base.hp <= 0.0 {
+                        self.die();
+                    }
+                }
             } else {
                 self.base.team = 0;
+                self.hold_pre_uid = None;
                 self.base.ps.vy = 0.0;
                 if self.light {
                     self.base.trans_frame(70, 5);
@@ -73,7 +87,7 @@ impl Weapon {
                     self.base.trans_frame(21, 5);
                 }
             }
-            let _ = global::GRAVITY;
+            self.base.ps.zz = 0.0;
         }
 
         // in-air weapon frames often 20-60 range; on ground 0/64/70
@@ -85,6 +99,7 @@ impl Weapon {
     pub fn attach_to(&mut self, holder: u32, x: f64, y: f64, z: f64, facing: i32) {
         self.held = true;
         self.holder_uid = Some(holder);
+        self.hold_pre_uid = Some(holder);
         self.base.ps.x = x;
         self.base.ps.y = y;
         self.base.ps.z = z;
@@ -102,6 +117,7 @@ impl Weapon {
     pub fn drop(&mut self, vx: f64, vy: f64, vz: f64) {
         self.held = false;
         self.holder_uid = None;
+        // hold_pre kept until land so thrown credit works (cleared on land)
         if self.light {
             self.base.trans_frame(40, 5);
         } else {
@@ -117,11 +133,54 @@ impl Weapon {
         self.base.trans_frame(1000, 20);
         self.base.removed = true;
     }
+
+    /// F.LF typeweapon.attacked — forward to holder pre when present; returns credit uid
+    pub fn attacked_credit_uid(&self) -> Option<u32> {
+        self.hold_pre_uid.or(self.holder_uid)
+    }
+
+    /// F.LF typeweapon.itr_rest_update override — heavier weapons keep arest longer
+    pub fn itr_rest_update(&mut self, arest: i32, vrest_uid: u32, vrest: i32) {
+        let a = if self.heavy {
+            arest.max(global::DEFAULT_AREST + 2)
+        } else if arest > 0 {
+            arest
+        } else {
+            global::DEFAULT_AREST
+        };
+        if a > self.base.arest {
+            self.base.arest = a;
+        }
+        if vrest > 0 {
+            self.base.itr_vrest_update(vrest_uid, vrest);
+        }
+    }
+
+    /// F.LF typeweapon.pick
+    pub fn pick(&mut self, holder: u32) {
+        self.held = true;
+        self.holder_uid = Some(holder);
+        self.hold_pre_uid = Some(holder);
+        let held_frame = if self.heavy { 2001 } else { 1001 };
+        if self.base.data.frames.contains_key(&held_frame) {
+            self.base.trans_frame(held_frame, 0);
+        }
+    }
 }
 
 impl Weapon {
     /// F.LF typeweapon.hit — reverse on head-on throw, bounce on ground
-    pub fn on_hit_by(&mut self, att_facing: i32, att_vx: f64, att_vz: f64, fall: f64, injury: f64) -> bool {
+    /// `att_team` adopted on airborne reverse (F.LF).
+    pub fn on_hit_by(
+        &mut self,
+        att_facing: i32,
+        att_vx: f64,
+        att_vz: f64,
+        fall: f64,
+        injury: f64,
+        att_team: i32,
+        att_is_weapon: bool,
+    ) -> bool {
         if self.held {
             return false;
         }
@@ -132,36 +191,53 @@ impl Weapon {
                 accept = true;
                 // head-on reverse
                 if (att_facing > 0) != (self.base.ps.vx > 0.0) {
-                    self.base.ps.vx *= -0.6;
+                    self.base.ps.vx *= global::WEAPON_REVERSE_VX;
                 }
-                self.base.ps.vy *= -0.4;
-                self.base.ps.vz *= -0.4;
-            } else if st == 1004 || self.base.ps.y >= 0.0 {
-                accept = true;
-                self.base.ps.vx = att_facing as f64 * 3.0;
-                self.base.ps.vz = if att_vz != 0.0 { att_vz.signum() * 1.5 } else { 0.0 };
+                self.base.ps.vy *= global::WEAPON_REVERSE_VY;
+                self.base.ps.vz *= global::WEAPON_REVERSE_VZ;
+                self.base.team = att_team;
+            } else if st == 1004 {
+                // on_ground — only weapons kick it
+                if att_is_weapon {
+                    accept = true;
+                    self.base.ps.vx = if att_vx != 0.0 {
+                        att_vx.signum() * global::WEAPON_BOUNCEUP_SPEED_X
+                    } else {
+                        0.0
+                    };
+                    self.base.ps.vz = if att_vz != 0.0 {
+                        att_vz.signum() * global::WEAPON_BOUNCEUP_SPEED_Z
+                    } else {
+                        0.0
+                    };
+                }
             }
         }
         if self.heavy {
-            if st == 2004 || self.base.ps.y >= 0.0 {
+            if st == 2004 {
                 accept = true;
                 if fall < 30.0 {
-                    self.base.effect_create(0, 3, 0.0, 0.0);
+                    self.base.effect_create(0, global::EFFECT_DURATION, 0.0, 0.0);
                 } else if fall < global::FALL_KO {
-                    self.base.ps.vy = -3.7;
+                    self.base.ps.vy = global::WEAPON_SOFT_BOUNCEUP_SPEED_Y;
                 } else {
-                    self.base.ps.vy = -6.0;
+                    self.base.ps.vy = global::WEAPON_BOUNCEUP_SPEED_Y;
                     if att_vx != 0.0 {
-                        self.base.ps.vx = att_vx.signum() * 3.0;
+                        self.base.ps.vx = att_vx.signum() * global::WEAPON_BOUNCEUP_SPEED_X;
                     }
-                    self.base.trans_frame(20, 5);
+                    if att_vz != 0.0 {
+                        self.base.ps.vz = att_vz.signum() * global::WEAPON_BOUNCEUP_SPEED_Z;
+                    }
+                    self.base.trans_frame(999, 5);
                 }
             } else if st == 2000 && fall >= global::FALL_KO {
                 accept = true;
                 if (att_facing > 0) != (self.base.ps.vx > 0.0) {
-                    self.base.ps.vx *= -0.6;
+                    self.base.ps.vx *= global::WEAPON_REVERSE_VX;
                 }
-                self.base.ps.vy *= -0.4;
+                self.base.ps.vy *= global::WEAPON_REVERSE_VY;
+                self.base.ps.vz *= global::WEAPON_REVERSE_VZ;
+                self.base.team = att_team;
             }
         }
         if accept && injury > 0.0 {
@@ -171,6 +247,25 @@ impl Weapon {
             }
         }
         accept
+    }
+
+    /// After weapon damages a character — F.LF: vx = sign(travel) * GC.weapon.hit.vx (−3)
+    pub fn after_hit_character(&mut self) {
+        if self.light {
+            let sign = if self.base.ps.vx == 0.0 {
+                0.0
+            } else if self.base.ps.vx > 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            self.base.ps.vx = sign * global::WEAPON_HIT_VX;
+            self.base.ps.vy = global::WEAPON_HIT_VY;
+            // F.LF weapon.js: effect_stuck(0, timeout) — timers decay via recover_tu
+            self.base.effect_stuck(0, 2);
+        } else if self.heavy {
+            self.base.effect_stuck(0, 4);
+        }
     }
 
     /// F.LF typeweapon.act — held weaponact + throw impulse from wpoint kind 2

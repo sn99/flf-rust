@@ -11,4 +11,5 @@ pub mod util;
 
 pub mod touch;
 pub mod controller_recorder;
+pub mod controller_changer;
 pub mod network_sync;

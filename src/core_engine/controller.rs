@@ -90,6 +90,11 @@ impl Controller {
         false
     }
 
+    /// F.LF controller.config[action] lookup
+    pub fn config_key(&self, action: &str) -> Option<&str> {
+        self.config.get(action).map(|s| s.as_str())
+    }
+
     /// Rebind action to a new key (keeps tracking entry in `keys`)
     pub fn rebind(&mut self, action: &str, new_key: &str) {
         let new_key = new_key.to_lowercase();
@@ -154,4 +159,83 @@ pub fn default_p2_config() -> HashMap<String, String> {
     m.insert("jump".into(), "i".into());
     m.insert("att".into(), "j".into());
     m
+}
+
+/// F.LF controller.keycode_to_keyname (subset used by keychanger)
+pub fn keycode_to_keyname(code: u32) -> String {
+    match code {
+        8 => "backspace".into(),
+        9 => "tab".into(),
+        13 => "enter".into(),
+        16 => "shift".into(),
+        17 => "ctrl".into(),
+        18 => "alt".into(),
+        27 => "esc".into(),
+        32 => "space".into(),
+        37 => "left".into(),
+        38 => "up".into(),
+        39 => "right".into(),
+        40 => "down".into(),
+        46 => "delete".into(),
+        188 => ",".into(),
+        190 => ".".into(),
+        191 => "/".into(),
+        186 => ";".into(),
+        222 => "'".into(),
+        219 => "[".into(),
+        221 => "]".into(),
+        192 => "`".into(),
+        189 => "-".into(),
+        187 => "=".into(),
+        48..=57 => ((b'0' + (code - 48) as u8) as char).to_string(),
+        65..=90 => ((b'a' + (code - 65) as u8) as char).to_string(),
+        96..=105 => format!("num{}", code - 96),
+        112..=123 => format!("f{}", code - 111),
+        _ => format!("key{code}"),
+    }
+}
+
+/// F.LF controller.keyname_to_keycode
+pub fn keyname_to_keycode(name: &str) -> u32 {
+    let n = name.to_lowercase();
+    match n.as_str() {
+        "backspace" => 8,
+        "tab" => 9,
+        "enter" => 13,
+        "shift" => 16,
+        "ctrl" => 17,
+        "alt" => 18,
+        "esc" => 27,
+        "space" => 32,
+        "left" => 37,
+        "up" => 38,
+        "right" => 39,
+        "down" => 40,
+        "delete" => 46,
+        "," => 188,
+        "." => 190,
+        "/" => 191,
+        ";" => 186,
+        "'" => 222,
+        "[" => 219,
+        "]" => 221,
+        "`" => 192,
+        "-" => 189,
+        "=" => 187,
+        s if s.len() == 1 => {
+            let c = s.chars().next().unwrap();
+            if c.is_ascii_digit() {
+                c as u32
+            } else if c.is_ascii_lowercase() {
+                (c as u8 - b'a' + 65) as u32
+            } else {
+                0
+            }
+        }
+        s if s.starts_with('f') && s[1..].parse::<u32>().is_ok() => {
+            111 + s[1..].parse::<u32>().unwrap_or(1)
+        }
+        s if s.starts_with("num") => 96 + s[3..].parse::<u32>().unwrap_or(0),
+        _ => 0,
+    }
 }

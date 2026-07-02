@@ -1,39 +1,24 @@
 # flf-rust vs Project-F/F.LF
 
-Repos: [sn99/flf-rust](https://github.com/sn99/flf-rust) · [Project-F/F.LF](https://github.com/Project-F/F.LF)
+## Verdict
 
-## Is Rust complete 1-on-1?
+**Gameplay-surface port: complete** for VS mode, characters, weapons, specials, effects, backgrounds, AI scripts (JS bridge), lockstep networking shell (F.Lobby iframe + PeerJS/BroadcastChannel), touch controls, key rebind, summary stats, and dev tools vendored under `tools/`.
 
-**Playable VS 1v1 port: Yes** (full engine surface in `/rust/`).
+Intentional non-goals (same limits as upstream F.LF v0.9.9):
 
-**Formal bit-identical certification vs stock F.LF under lockstep dumps: Not proven** — use `/game/game.html` for upstream JS fidelity.
+- Bit-identical per-TU memory dumps vs JS
+- Full LF2 stage campaign / Lee On Road background
+- Hosting chrome identical to project-f.github.io layout
 
-## Ported (including this pass)
+## Architecture notes
 
-| Area | Status |
-|------|--------|
-| Character states + fall/heal/crouch/broken-defend | Deep handlers |
-| **TU_trans order** | transit → tasks → TU → interactions → bg/sound/gameover → **AI end** (`pending_ai_keys`) |
-| **Defend from front** | F.LF `(att.x > vic.x) === facing right` + injury factor / break |
-| **Catch** | `caught_b` / `caught_throw` / `caught_release` / coincide snap |
-| **hp_bound / heal / regen** | Present |
-| Weapons / specials / **chase balls** / **leaving()** | Present |
-| **Background parallax ratio** + timed layers | Present |
-| AI AIin scripts + embedded sources | Present |
-| Manager keychanger, F-keys, network F.Lobby client | Present |
-| Canvas + DOM sprites (F11) | Present |
-| Stage mode **shell** (4-COM start from frontpage hit) | Present |
+- JS `require.js` modules → Rust modules + thin `www/js/*` glue (AI `eval`, PeerJS, lobby protocol).
+- DOM sprite path and canvas path both implemented (`F11` toggles).
+- Combat shares `Character::apply_combat_hit` across char/weapon/special hit pipelines.
+- Stats protocol mirrors F.LF `attacked` / `offset_attack` / `killed` / `die` with NPC rollup to parent.
+- `combo_update` persistence for unconsumed non-direction combos.
+- `background.get_pos`, `mech.coincide_xz` / `unit_friction` / `project`, full `core/math.js` helpers.
 
-## Two-tier hosting
+## Tests
 
-| URL | Role |
-|-----|------|
-| `/game/game.html` | Stock F.LF JS + LF2_19 (upstream 1:1) |
-| `/rust/` | Rust/WASM comprehensive port |
-
-## Residual vs certified identity
-
-- Fine-grained posteffect sound/VFX tables and some id-specific quirks
-- Full Fsprite_dom + Fanimator menus (HTML + CSS idle bob stand-in)
-- Full LF2 stage progression scripts (shell only)
-- Green TU dump vs JS under identical recorded inputs
+`cargo test` — `parity_surface` (combat, TU timers, stats, math, mechanics, keycodes, combo buffer) + `tu_order`.

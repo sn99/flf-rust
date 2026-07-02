@@ -252,6 +252,7 @@ impl Manager {
                 <button type="button" class="menu_hit" data-i="2" style="top:76px;height:27px;" title="settings"></button>
               </div>
               <button type="button" class="menu_hit stage_entry" data-i="3" style="position:absolute;left:8px;bottom:8px;width:120px;height:22px;opacity:0.01;" title="stage mode"></button>
+              <button type="button" class="menu_hit demo_entry" data-i="4" style="position:absolute;right:8px;bottom:8px;width:100px;height:22px;opacity:0.01;" title="demo mode"></button>
             </div>"#
         );
         if let Some(el) = util::div_class("frontpage_content") {
@@ -554,6 +555,65 @@ impl Manager {
         chars[idx].id
     }
 
+    /// F.LF start_demo — COM vs COM (Woody vs Firen-ish picks)
+    fn start_demo(&mut self, _playable: bool) {
+        let chars = self.package.characters();
+        let id_a = chars
+            .iter()
+            .find(|c| c.id == 10 || c.name.eq_ignore_ascii_case("woody"))
+            .map(|c| c.id)
+            .or_else(|| chars.first().map(|c| c.id))
+            .unwrap_or(1);
+        let id_b = chars
+            .iter()
+            .find(|c| c.id == 8 || c.name.eq_ignore_ascii_case("firen"))
+            .map(|c| c.id)
+            .or_else(|| chars.get(1).map(|c| c.id))
+            .unwrap_or(id_a);
+        let players = vec![
+            PlayerSetup {
+                id: id_a,
+                team: 1,
+                controller_index: None,
+                is_ai: true,
+                name: "CRUSHER".into(),
+            },
+            PlayerSetup {
+                id: id_b,
+                team: 2,
+                controller_index: None,
+                is_ai: true,
+                name: "dumbass".into(),
+            },
+        ];
+        let bg = if self.package.backgrounds.contains_key(&6) {
+            6
+        } else {
+            self.selected_bg
+        };
+        match Match::create(
+            &self.package,
+            players,
+            bg,
+            self.controllers.clone(),
+            false,
+        ) {
+            Ok(mut m) => {
+                m.demo_mode = true;
+                for b in &mut m.ai_brains {
+                    b.difficulty = 2;
+                }
+                self.match_game = Some(m);
+                self.show_screen(Screen::Gameplay);
+                self.alert("Demo mode — Esc returns to menu when available.");
+            }
+            Err(e) => {
+                self.alert(&e);
+                util::error(&e);
+            }
+        }
+    }
+
     fn start_match(&mut self) {
         let mut players = vec![];
         for (i, slot) in self.slots.iter().enumerate() {
@@ -712,6 +772,10 @@ impl Manager {
                                 s.joined = true;
                             }
                             g.start_match();
+                        }
+                        4 => {
+                            // F.LF start_demo — two AI fighters, no gameover panel pressure
+                            g.start_demo(false);
                         }
                         99 => { g.save_settings(); g.show_screen(Screen::FrontPage); },
                         _ => {}
@@ -1211,11 +1275,15 @@ impl Manager {
                 }
                 if m.game_over {
                     if let Some(el) = util::qs(".summary_dialog") {
-                        let mut html = String::from("<table class='summary'><tr><th>Name</th><th>Kills</th><th>HP</th><th>Team</th></tr>");
-                        for ch in &m.characters {
+                        let tu = m.match_time_tu();
+                        let secs = tu as f64 / global::FRAMERATE;
+                        let mut html = format!(
+                            "<div class='summary_time'>Time: {secs:.1}s ({tu} TU)</div>\
+                             <table class='summary'><tr><th>Name</th><th>Kill</th><th>Attack</th><th>HP</th><th>Team</th></tr>"
+                        );
+                        for (name, kills, attack, hp, team) in m.summary_rows() {
                             html.push_str(&format!(
-                                "<tr><td>{}</td><td>{}</td><td>{:.0}</td><td>{}</td></tr>",
-                                ch.base.name, ch.base.kills, ch.base.hp, ch.base.team
+                                "<tr><td>{name}</td><td>{kills}</td><td>{attack:.0}</td><td>{hp:.0}</td><td>{team}</td></tr>"
                             ));
                         }
                         html.push_str("</table><p>Esc — menu</p>");

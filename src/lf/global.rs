@@ -40,6 +40,37 @@ pub const BOUNCE_LIMIT_Y: f64 = 10.0;
 pub const BOUNCE_Y: f64 = 6.0;
 pub const COMBO_TIMEOUT: u32 = 10;
 
+/// GC.default.cpoint
+pub const DEFAULT_CPOINT_HURTABLE: i32 = 0;
+pub const DEFAULT_CPOINT_COVER: i32 = 0;
+pub const DEFAULT_CPOINT_VACTION: i32 = 135;
+
+/// GC.weapon.bounceup / soft_bounceup / hit / reverse (F.LF global.js)
+pub const WEAPON_BOUNCEUP_LIMIT: f64 = 8.0;
+pub const WEAPON_BOUNCEUP_SPEED_Y: f64 = -3.7;
+pub const WEAPON_BOUNCEUP_SPEED_X: f64 = 3.0;
+pub const WEAPON_BOUNCEUP_SPEED_Z: f64 = 1.5;
+pub const WEAPON_SOFT_BOUNCEUP_SPEED_Y: f64 = -2.0;
+pub const WEAPON_HIT_VX: f64 = -3.0;
+pub const WEAPON_HIT_VY: f64 = 0.0;
+pub const WEAPON_REVERSE_VX: f64 = -0.4;
+pub const WEAPON_REVERSE_VY: f64 = -2.0;
+pub const WEAPON_REVERSE_VZ: f64 = -0.4;
+
+/// Specialattack chase (hit_Fa 1/2) — F.LF specialattack.js comments
+pub const CHASE_MAX_VX: f64 = 14.0;
+pub const CHASE_AX: f64 = 0.7;
+pub const CHASE_MAX_VZ: f64 = 2.2;
+pub const CHASE_AZ: f64 = 0.4;
+pub const CHASE_EXHAUST_VX: f64 = 17.0;
+
+/// Oids that keep mass physics (F.LF GC.specialattack_projectiles)
+pub const SPECIALATTACK_PROJECTILES: &[i32] = &[201, 202];
+
+/// GC.effect.disappear blink windows
+pub const DISAPPEAR_SHADOW_BLINK: i32 = 120;
+pub const DISAPPEAR_BODY_BLINK: i32 = 150;
+
 pub fn combo_list() -> Vec<(String, Vec<String>, bool)> {
     vec![
         ("D<A".into(), vec!["def".into(), "left".into(), "att".into()], false),

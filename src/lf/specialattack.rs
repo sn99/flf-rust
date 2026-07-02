@@ -10,6 +10,11 @@ pub struct SpecialAttack {
     /// Chase target world position (F.LF chase_target)
     pub chase_x: f64,
     pub chase_z: f64,
+    /// Prefer targets chased less often (F.LF chasing.chased scores)
+    pub chased_counts: std::collections::HashMap<u32, i32>,
+    /// State 1002: no bounce when parent was grounded at spawn
+    pub nobounce: bool,
+    pub parent_uid: Option<u32>,
 }
 
 impl SpecialAttack {
@@ -19,13 +24,47 @@ impl SpecialAttack {
             opoint_done: false,
             chase_x: f64::NAN,
             chase_z: f64::NAN,
+            chased_counts: std::collections::HashMap::new(),
+            nobounce: false,
+            parent_uid: None,
         };
         s.base.ps.y = y;
         s.base.facing = facing;
         s.base.obj_type = "specialattack".into();
         s.base.hp = global::HP_FULL;
+        // F.LF: mass 0 unless oid in specialattack_projectiles
+        if !global::SPECIALATTACK_PROJECTILES.contains(&s.base.id) {
+            s.base.mech.mass = 0.0;
+        }
         s.base.trans_frame(0, 0);
         s
+    }
+
+    /// F.LF specialattack.init facing from opoint.facing codes
+    pub fn apply_opoint_facing(&mut self, parent_facing: i32, opoint_facing: i32) {
+        let mut face = opoint_facing;
+        if face >= 20 {
+            face %= 10;
+        }
+        let dir = if face == 0 {
+            parent_facing
+        } else if face == 1 {
+            -parent_facing
+        } else if (2..=10).contains(&face) {
+            1
+        } else if (11..=19).contains(&face) {
+            -1
+        } else {
+            parent_facing
+        };
+        self.base.facing = if dir >= 0 { 1 } else { -1 };
+    }
+
+    pub fn with_parent(mut self, parent_uid: u32, parent_y: f64) -> Self {
+        self.parent_uid = Some(parent_uid);
+        // state 1002 nobounce if parent grounded
+        self.nobounce = parent_y >= 0.0;
+        self
     }
 
     pub fn with_velocity(mut self, dvx: f64, dvy: f64) -> Self {
@@ -80,18 +119,17 @@ impl SpecialAttack {
             if fd.hit_j != 0 {
                 self.base.ps.vz = (fd.hit_j - 50) as f64;
             }
-            if fd.dvx != 0.0 && fd.dvx as i32 != global::UNSPECIFIED {
-                self.base.ps.vx = fd.dvx * self.base.facing as f64;
+            // dvx/dvy frame force — skip when chase hit_Fa active (300X owns vx)
+            let chasing = fd.hit_Fa == 1 || fd.hit_Fa == 2 || fd.hit_Fa == 10;
+            if !chasing && fd.state != 15 {
+                if fd.dvx != 0.0 && fd.dvx as i32 != global::UNSPECIFIED {
+                    self.base.ps.vx = fd.dvx * self.base.facing as f64;
+                }
             }
-            if fd.dvy != 0.0 && fd.dvy as i32 != global::UNSPECIFIED {
-                // some balls use dvy as lift; only apply lightly in air
+            if fd.dvy != 0.0 && fd.dvy as i32 != global::UNSPECIFIED && !chasing {
                 if self.base.ps.y < 0.0 {
                     self.base.ps.vy += fd.dvy * 0.05;
                 }
-            }
-            // state 15 whirlwind — slow horizontal drift only
-            if fd.state == 15 {
-                self.base.ps.vx *= 0.92;
             }
         }
         // land dissolve for many light projectiles
@@ -113,5 +151,10 @@ impl SpecialAttack {
     pub fn mark_die(&mut self, frame: i32) {
         self.base.trans_frame(if frame > 0 { frame } else { 1000 }, 5);
         self.base.hp = 0.0;
+    }
+
+    /// F.LF specialattack.attacked / killed / offset_attack — credit parent character uid
+    pub fn credit_uid(&self) -> Option<u32> {
+        self.parent_uid
     }
 }

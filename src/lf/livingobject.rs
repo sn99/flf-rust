@@ -98,6 +98,8 @@ pub struct LivingObject {
     pub pending_broken_num: i32,
     pub pending_vfx_num: i32,
     pub skip_mp_cost: bool,
+    /// F.LF mech.blocking_xz — set by match when body+offset hits itr kind 14
+    pub block_xz: bool,
 }
 
 impl LivingObject {
@@ -151,6 +153,7 @@ impl LivingObject {
             pending_broken_num: 0,
             pending_vfx_num: 0,
             skip_mp_cost: false,
+            block_xz: false,
         };
         lo.trans_frame(0, 0);
         lo
@@ -478,17 +481,18 @@ impl LivingObject {
             return (true, 3);
         }
 
-        self.fall += if fall_add != 0.0 {
-            fall_add
-        } else {
-            global::DEFAULT_FALL
-        };
-        self.ps.vx = dvx;
+        // fall_add == 0 means no fall progression (e.g. effective defend); callers pass DEFAULT_FALL for normal hits
+        if fall_add != 0.0 {
+            self.fall += fall_add;
+        }
         let ef_dvy = if dvy != 0.0 {
             dvy
         } else {
             global::DEFAULT_FALL_DVY
         };
+        // F.LF: knockback via effect_create (applied when timeout hits -1), not free motion during stuck
+        let vanish = global::EFFECT_DURATION;
+        self.effect_create(effect_num.max(0), vanish, dvx, ef_dvy);
 
         let fall = self.fall;
         let airborne = self.ps.y < 0.0 || self.ps.vy < 0.0;
@@ -499,9 +503,9 @@ impl LivingObject {
 
         if do_falldown {
             self.fall = 0.0;
+            // fall frames still set vy for launch; vx comes from effect when timeout expires
             self.ps.vy = ef_dvy;
             let front = (attacker_x > self.ps.x) == (self.facing > 0);
-            // F.LF falldown: front + dvx<0 + strong bdefend → 186 else front 180 / back 186
             if front && dvx < 0.0 && self.bdefend >= 60.0 {
                 self.trans_frame(186, 21);
             } else if front {
@@ -510,31 +514,36 @@ impl LivingObject {
                 self.trans_frame(186, 21);
             }
             drop_w = true;
-        } else if self.bdefend > 0.0 && self.state() == 7 {
-            self.trans_frame(111, 10);
-        } else if fall > 0.0 && fall <= 20.0 {
+        } else if fall_add != 0.0 && fall > 0.0 && fall <= 20.0 {
             self.trans_frame(220, 20);
-        } else if fall > 20.0 && fall <= 30.0 {
+        } else if fall_add != 0.0 && fall > 20.0 && fall <= 30.0 {
             self.trans_frame(222, 20);
-        } else if fall > 30.0 && fall <= 40.0 {
+        } else if fall_add != 0.0 && fall > 30.0 && fall <= 40.0 {
             self.trans_frame(224, 20);
-        } else if fall > 40.0 && fall <= 60.0 {
+        } else if fall_add != 0.0 && fall > 40.0 && fall <= 60.0 {
             self.trans_frame(226, 20);
-        } else {
-            // light injury / dance of pain entry
+        } else if fall_add != 0.0 {
             if self.data.frames.contains_key(&220) {
                 self.trans_frame(220, 12);
             }
         }
 
-        // fall frames that drop weapon in F.LF posteffect 0/1
         if matches!(self.frame.n, 180 | 186) || do_falldown {
             drop_w = true;
         }
 
-        self.effect.blink = true;
-        self.effect.timeout = 8;
         (drop_w, effect_num)
+    }
+
+    /// Apply reduced injury on effective defend without fall() progression (F.LF)
+    pub fn defend_injury(&mut self, injury: f64) {
+        if injury <= 0.0 {
+            return;
+        }
+        self.hp = (self.hp - injury).max(0.0);
+        self.injury_total += injury;
+        self.hp_lost += injury;
+        self.hp_bound = (self.hp_bound - (injury / 3.0).ceil()).max(0.0);
     }
 
     pub fn itr_vrest_test(&self, att_uid: u32) -> bool {
@@ -651,53 +660,126 @@ impl LivingObject {
         {
             self.hp = (self.hp + 1.0 / 12.0).min(self.hp_bound);
         }
-        // effect timein: delay before stuck applies (Davis hit_stop pattern)
-        if self.effect.timein > 0 {
-            self.effect.timein -= 1;
-            if self.effect.timein == 0 && self.effect.timeout > 0 {
-                self.effect.stuck = true;
-            }
-        }
-        if self.effect.timeout > 0 {
-            self.effect.timeout -= 1;
+        // F.LF livingobject TU_update effect block — only while timein < 0
+        if self.effect.timein < 0 {
             if self.effect.timeout == 0 {
-                self.effect.blink = false;
-                self.effect.stuck = false;
-                self.effect.super_armor = false;
                 self.effect.num = -99;
+                self.effect.stuck = false;
+                self.effect.blink = false;
+                self.effect.super_armor = false;
+                self.effect.oscillate = 0.0;
+            } else if self.effect.timeout == -1 {
+                if self.effect.dvx != 0.0 {
+                    self.ps.vx = self.effect.dvx;
+                    self.effect.dvx = 0.0;
+                }
+                if self.effect.dvy != 0.0 {
+                    self.ps.vy = self.effect.dvy;
+                    self.effect.dvy = 0.0;
+                }
             }
+            self.effect.timeout -= 1;
         }
+        // F.LF transit always decrements timein once per TU (after transit checks)
+        self.effect.timein -= 1;
+
         if self.statemem_attlock > 0 {
             self.statemem_attlock -= 1;
         }
+        // F.LF character generic TU — disappear_count / dead_blink_count
+        self.tick_disappear_counters();
         // lockout decay is owned by FrameTransistor::tick_wait (once per TU in physics_tu)
     }
 
-    /// Physics + frame wait (base TU without character input)
-    pub fn effect_stuck(&mut self, timein: i32, timeout: i32) {
-        self.effect.stuck = true;
-        self.effect.timein = timein;
-        self.effect.timeout = timeout;
+    /// F.LF: freeze only when timein < 0 && stuck (effect_stuck(1,2) delays one TU)
+    pub fn is_effectively_stuck(&self) -> bool {
+        self.effect.timein < 0 && self.effect.stuck
     }
 
+    /// F.LF states.generic TU disappear + dead blink (shadow/body blink windows)
+    fn tick_disappear_counters(&mut self) {
+        // disappear_count
+        if self.counter_disappear >= 0 {
+            if self.counter_disappear < global::DISAPPEAR_SHADOW_BLINK {
+                // body disappear window — hide sprite
+                self.sp.visible = false;
+                self.counter_disappear += 1;
+            } else if self.counter_disappear < global::DISAPPEAR_BODY_BLINK {
+                // shadow blink
+                self.counter_disappear += 1;
+                self.sp.visible = (self.counter_disappear / 2) % 2 == 0;
+            } else if self.counter_disappear == global::DISAPPEAR_BODY_BLINK {
+                self.counter_disappear += 1;
+                self.effect.blink = true;
+                self.effect.timein = 0;
+                self.effect.timeout = 30;
+                self.sp.visible = true;
+                self.effect.super_armor = false;
+            } else {
+                self.counter_disappear = -1;
+            }
+        }
+        // dead_blink_count
+        if self.counter_dead_blink == 0 {
+            self.effect.blink = true;
+            self.counter_dead_blink += 1;
+        } else if self.counter_dead_blink > 0 && self.counter_dead_blink < 30 {
+            self.counter_dead_blink += 1;
+        } else if self.counter_dead_blink >= 30 {
+            self.effect.blink = false;
+            self.sp.visible = false;
+            self.counter_dead_blink = -1;
+            self.removed = true;
+        }
+    }
+
+    /// F.LF effect_stuck — sets stuck flag; freeze only after timein < 0
+    pub fn effect_stuck(&mut self, timein: i32, timeout: i32) {
+        if !self.effect.stuck || self.effect.num <= -1 {
+            self.effect.num = -1;
+            self.effect.stuck = true;
+            self.effect.timein = timein;
+            self.effect.timeout = timeout;
+        }
+    }
+
+    /// F.LF livingobject.effect_create — sets stuck + delayed dvx/dvy (not super_armor)
     pub fn effect_create(&mut self, num: i32, duration: i32, dvx: f64, dvy: f64) {
-        self.effect.num = num;
-        self.effect.timeout = duration;
+        if num < self.effect.num {
+            return;
+        }
+        self.effect.stuck = true;
         self.effect.dvx = dvx;
         self.effect.dvy = dvy;
-        if num == 0 {
-            self.effect.super_armor = true;
+        if self.effect.num >= 0 {
+            // only allow extension of existing effect
+            if self.effect.timein > 0 {
+                self.effect.timein = 0;
+            }
+            if duration > self.effect.timeout {
+                self.effect.timeout = duration;
+            }
+        } else {
+            self.effect.timein = 0;
+            self.effect.timeout = duration;
         }
+        self.effect.num = num;
     }
 
     pub fn physics_tu(&mut self, zbound: (f64, f64), bg_width: f64) {
-        if self.removed || self.effect.stuck {
+        if self.removed {
             return;
         }
+        // Always decay effect timers / disappear (F.LF TU_update runs even when stuck)
         self.recover_tu();
-        if !self.effect.stuck {
-            self.frame_force();
+
+        // F.LF: skip dynamics while timein < 0 && stuck — not merely stuck flag
+        if self.is_effectively_stuck() {
+            self.sync_sprite_visual();
+            return;
         }
+
+        self.frame_force();
 
         // gravity when airborne
         if self.ps.y < 0.0 || self.ps.vy < 0.0 {
@@ -705,9 +787,16 @@ impl LivingObject {
         }
 
         // integrate — LF2: y negative is up
-        self.ps.x += self.ps.vx;
-        self.ps.z += self.ps.vz;
+        // F.LF blocking_xz: characters blocked by itr kind 14 (ice column etc.) move at 10%
+        let block_scale = if self.obj_type == "character" && self.block_xz {
+            0.1
+        } else {
+            1.0
+        };
+        self.ps.x += self.ps.vx * block_scale;
+        self.ps.z += self.ps.vz * block_scale;
         self.ps.y += self.ps.vy; // vy negative => y decreases (higher)
+        self.block_xz = false; // consumed each TU; match sets via update_blocking_xz
 
         // land
         if self.ps.y >= 0.0 && self.ps.vy >= 0.0 {
@@ -794,6 +883,10 @@ impl LivingObject {
             self.frame.wait_left = self.trans.wait;
         }
 
+        self.sync_sprite_visual();
+    }
+
+    fn sync_sprite_visual(&mut self) {
         // sync sprite world pos (render uses x,z and y lift)
         self.sp.x = self.ps.x;
         self.sp.y = self.ps.y;
@@ -803,11 +896,22 @@ impl LivingObject {
         if let Some(fd) = self.frame_data() {
             self.sp.pic = fd.pic;
         }
-        // blink
-        if self.effect.blink && (self.effect.timeout / 2) % 2 == 0 {
+        // visibility: disappear windows (F.LF) take priority over effect blink
+        if self.removed {
+            self.sp.visible = false;
+        } else if self.counter_disappear >= 0
+            && self.counter_disappear < global::DISAPPEAR_SHADOW_BLINK
+        {
+            self.sp.visible = false;
+        } else if self.counter_disappear >= global::DISAPPEAR_SHADOW_BLINK
+            && self.counter_disappear < global::DISAPPEAR_BODY_BLINK
+        {
+            self.sp.visible = (self.counter_disappear / 2) % 2 == 0;
+        } else if self.effect.blink && self.effect.timein < 0 && (self.effect.timeout / 2) % 2 == 0
+        {
             self.sp.visible = false;
         } else {
-            self.sp.visible = !self.removed;
+            self.sp.visible = true;
         }
         self.ps.zz = self.ps.z;
     }

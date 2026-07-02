@@ -38,6 +38,11 @@ pub struct PlayerSetup {
     pub name: String,
 }
 
+/// F.LF check_gameover: fire when `time == gameover_state + 30` (used by Match::check_game_over).
+pub fn gameover_fires_at(time: u32, gameover_state: Option<u32>) -> bool {
+    gameover_state.map(|t0| time == t0.saturating_add(30)).unwrap_or(false)
+}
+
 pub struct Match {
     pub characters: Vec<Character>,
     pub weapons: Vec<Weapon>,
@@ -48,7 +53,13 @@ pub struct Match {
     pub next_uid: u32,
     pub time: u32,
     pub game_over: bool,
+    /// F.LF gameover_state — time.t when only one team remains; gameover at +30
+    pub gameover_state: Option<u32>,
     pub paused: bool,
+    /// F.LF broken_list — object ids that spawn brokeneffect on state_exit (e.g. ice column)
+    pub broken_list: std::collections::HashSet<i32>,
+    /// demo_mode: no human controllers required
+    pub demo_mode: bool,
     pub camera_x: f64,
     controllers: Rc<RefCell<Vec<Controller>>>,
     package_objects: std::collections::HashMap<i32, ObjectData>,
@@ -90,14 +101,20 @@ impl Match {
         let mut characters = vec![];
         let mut next_uid = 1u32;
         let n = players.len().max(1) as f64;
+        let mut rng_seed = 0xC0FFEE_u64;
         for (i, p) in players.iter().enumerate() {
             let data = package
                 .objects
                 .get(&p.id)
                 .cloned()
                 .ok_or_else(|| format!("character id {} not loaded", p.id))?;
-            let x = 120.0 + (i as f64) * ((background.width - 240.0) / n.max(1.0));
-            let mut ch = Character::new(next_uid, data, p.team, x, mid_z);
+            // F.LF: background.get_pos(random(), random()) with slight lane spread
+            rng_seed ^= rng_seed << 13;
+            rng_seed ^= rng_seed >> 7;
+            let rx = (i as f64 + 0.5) / n.max(1.0);
+            let rz = 0.35 + (i as f64 % 3.0) * 0.15;
+            let (x, _y, z) = background.get_pos(rx.clamp(0.15, 0.85), rz.clamp(0.2, 0.8));
+            let mut ch = Character::new(next_uid, data, p.team, x, z);
             next_uid += 1;
             ch.base.controller_index = p.controller_index;
             ch.base.ai = p.is_ai;
@@ -109,6 +126,7 @@ impl Match {
             }
             characters.push(ch);
         }
+        let _ = mid_z;
 
         let mut weapons = vec![];
         if drop_weapons {
@@ -169,6 +187,20 @@ impl Match {
                 break;
             }
         }
+        // F.LF broken_list ids (LF2_19 data/broken.json) — spawn brokeneffect on destroy
+        let mut broken_list = std::collections::HashSet::new();
+        for id in [
+            100i32, 101, 121, 122, 123, 124, 150, 151, 212, 213, 217, 218, 302,
+        ] {
+            broken_list.insert(id);
+        }
+        // freeze columns / ice specials present in package
+        for id in [200i32, 209, 210, 211, 212, 213] {
+            if package.objects.contains_key(&id) {
+                broken_list.insert(id);
+            }
+        }
+
         Ok(Self {
             characters,
             weapons,
@@ -179,6 +211,9 @@ impl Match {
             next_uid,
             time: 0,
             game_over: false,
+            gameover_state: None,
+            broken_list,
+            demo_mode: false,
             paused: false,
             camera_x: 0.0,
             controllers,
@@ -270,6 +305,9 @@ impl Match {
         // --- process_tasks (spawns before TU physics of new objects) ---
         self.process_tasks();
 
+        // F.LF blocking_xz — set flags before character physics integrate
+        self.update_blocking_xz();
+
         // --- emit TU for characters (human / pending AI from last tick) ---
         let ctrls = self.controllers.borrow();
         for ch in self.characters.iter_mut() {
@@ -354,7 +392,42 @@ impl Match {
             w.tu(bg_z, bg_w);
         }
         for s in &mut self.specials {
+            let prev_n = s.base.frame.n;
             s.tu(bg_z, bg_w);
+            // detect destroy / leave flying states for broken_list
+            if (s.base.frame.n >= 1000 || s.base.removed)
+                && self.broken_list.contains(&s.base.id)
+                && prev_n < 1000
+            {
+                let (x, y, z) = (s.base.ps.x, s.base.ps.y, s.base.ps.z);
+                // spawn after loop
+                s.base.pending_broken_num = s.base.pending_broken_num.max(4);
+                s.base.pending_broken_id = 320;
+                let _ = (x, y, z);
+            }
+        }
+        // drain special broken requests
+        let mut sb = vec![];
+        for s in &self.specials {
+            if s.base.pending_broken_num > 0 {
+                sb.push((
+                    s.base.ps.x,
+                    s.base.ps.y,
+                    s.base.ps.z,
+                    s.base.pending_broken_num,
+                ));
+            }
+        }
+        for s in &mut self.specials {
+            if s.base.pending_broken_num > 0 {
+                s.base.pending_broken_num = 0;
+                s.base.pending_broken_id = 0;
+            }
+        }
+        for (x, y, z, n) in sb {
+            for _ in 0..n.max(1) {
+                self.spawn_broken(x, y, z);
+            }
         }
         self.specials.retain(|s| !s.base.removed && s.base.frame.n < 1000);
         for e in &mut self.effects {
@@ -648,7 +721,8 @@ impl Match {
                     }
                     for b in &bdys {
                         if vol.intersects(b) {
-                            let injury = if itr.injury != 0.0 { itr.injury } else { 20.0 };
+                            // F.LF: injury 0 stays 0; fall defaults only when unspecified (parser 0 → default)
+                            let injury = itr.injury;
                             let fall = if itr.fall != 0.0 { itr.fall } else { global::DEFAULT_FALL };
                             let vrest = if itr.vrest != 0 { itr.vrest } else { global::DEFAULT_VREST };
                             events.push((
@@ -671,16 +745,31 @@ impl Match {
         }
 
         let mut drops: Vec<(u32, f64, f64)> = vec![]; // char uid, vx, vy for weapon drop
+        let mut att_arest_spent: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for (i, j, injury, fall, dvx, dvy, arest, eff, ikind, vrest, bdef) in events {
+            // F.LF: !itr.arest before hit; arest itr breaks after one successful connect
+            if self.characters[i].base.arest > 0 || att_arest_spent.contains(&i) {
+                continue;
+            }
             let att_uid = self.characters[i].base.uid;
             let att_x = self.characters[i].base.ps.x;
             let facing = self.characters[i].base.facing;
+            let att_frame_n = self.characters[i].base.frame.n;
 
             self.characters[i].base.itr_arest_update(arest);
+            if arest > 0 {
+                att_arest_spent.insert(i);
+            }
+            // F.LF post_interaction hit_stop: frames 86/87/91 → stuck(0,2)+wait; else stuck(0, hit_stop)
             if !crate::lf::character_ids::state3_hit_stop(&mut self.characters[i]) {
-                let hs = global::DEFAULT_HIT_STOP;
-                self.characters[i].base.trans.inc_wait(hs, 20, 1);
-                self.characters[i].base.trans.wait = self.characters[i].base.trans.wait.max(hs);
+                if matches!(att_frame_n, 86 | 87 | 91) {
+                    self.characters[i].base.effect_stuck(0, 2);
+                    self.characters[i].base.trans.inc_wait(1, 20, 1);
+                } else {
+                    self.characters[i]
+                        .base
+                        .effect_stuck(0, global::DEFAULT_HIT_STOP);
+                }
             }
 
             // attacker tracks victim (legacy) + victim tracks attacker (F.LF itr_vrest)
@@ -688,86 +777,130 @@ impl Match {
             self.characters[i].base.vrest.insert(vic_uid, vrest);
             self.characters[j].base.itr_vrest_update(att_uid, vrest);
 
-            // F.LF: defend only if attacked from front:
-            // (att.x > vic.x) === (vic facing right)
-            let defending = self.characters[j].base.state() == 7;
-            let mut inj = injury;
-            let vic_x = self.characters[j].base.ps.x;
-            let vic_face_right = self.characters[j].base.facing > 0;
-            let attacked_from_front = (att_x > vic_x) == vic_face_right;
-            if defending && attacked_from_front {
-                inj *= global::DEFEND_INJURY_FACTOR;
-                self.characters[j].base.bdefend += if bdef != 0.0 { bdef } else { injury };
-                // absorb some dvx (handled by reduced fall via continue on effective defend)
-                if self.characters[j].base.bdefend <= global::DEFEND_BREAK_LIMIT {
-                    self.characters[j].base.trans_frame(111, 8);
-                    self.characters[j]
-                        .base
-                        .effect_create(0, 3, dvx * 0.3, 0.0);
-                    self.sound.play("1/002");
-                    // still apply reduced injury
-                    let (_d, _) = self.characters[j].base.injure(
-                        inj,
-                        0.0,
-                        dvx * 0.2 * facing as f64,
-                        0.0,
-                        att_x,
-                        0,
-                        ikind,
-                    );
-                    let _ = facing;
+            // F.LF state 10 being caught — hurtable from catcher's cpoint
+            if self.characters[j].base.state() == 10 {
+                let catcher_uid = self.characters[j].base.held_by;
+                let hurtable = catcher_uid
+                    .and_then(|uid| self.characters.iter().find(|c| c.base.uid == uid))
+                    .map(|c| c.caught_cpointhurtable())
+                    .unwrap_or(global::DEFAULT_CPOINT_HURTABLE);
+                let att_is_catcher = catcher_uid == Some(att_uid);
+                if hurtable == 0 && !att_is_catcher {
+                    // unhurtable vs third parties — ignore hit
                     continue;
                 }
-                self.characters[j].base.trans_frame(112, 12);
-            } else if defending {
-                // hit from behind — full injury, lose defend
-                self.characters[j].base.bdefend = 45.0;
+                // apply injury + fronthurtact / backhurtact (or ITR.vaction)
+                let inj_abs = injury.abs();
+                self.characters[j].base.hp = (self.characters[j].base.hp - inj_abs).max(0.0);
+                self.characters[j].base.injury_total += inj_abs;
+                self.characters[j].base.hp_lost += inj_abs;
+                self.characters[j].base.effect.blink = true;
+                self.characters[j].base.effect.timeout = global::EFFECT_DURATION;
+                let front = (att_x > self.characters[j].base.ps.x)
+                    == (self.characters[j].base.facing > 0);
+                let (fr, br) = self.characters[j]
+                    .base
+                    .frame_data()
+                    .and_then(|f| f.cpoint.as_ref())
+                    .map(|cp| (cp.fronthurtact, cp.backhurtact))
+                    .unwrap_or((0, 0));
+                let tar = if fr != 0 || br != 0 {
+                    if front { fr } else { br }
+                } else {
+                    0
+                };
+                if tar != 0 {
+                    self.characters[j].base.trans_frame(tar, 20);
+                } else if hurtable != 0 {
+                    // fall() path when catcher marks hurtable
+                    let (_d, _) = self.characters[j].base.injure(
+                        inj_abs,
+                        fall,
+                        dvx * facing as f64,
+                        if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY },
+                        att_x,
+                        eff,
+                        ikind,
+                    );
+                }
+                self.credit_attack(att_uid, inj_abs);
+                if self.characters[j].is_npc {
+                    if let Some(puid) = self.characters[j].parent_uid {
+                        self.offset_attack(puid, inj_abs);
+                    }
+                }
+                if self.characters[j].base.hp <= 0.0 && !self.characters[j].base.dead {
+                    self.credit_kill(att_uid, vic_uid);
+                }
+                continue;
             }
 
-            let dvy_use = if dvy != 0.0 { dvy } else { global::DEFAULT_FALL_DVY };
-            let mut inj2 = inj;
+            let dvy_use = if dvy != 0.0 { dvy } else { 0.0 };
+            let mut inj2 = injury;
             let mut eff2 = eff;
             if ikind == 8 {
-                inj2 = -inj.abs().max(10.0);
+                inj2 = -injury.abs().max(10.0);
+                let (drop_w, _) = self.characters[j].base.injure(
+                    inj2,
+                    0.0,
+                    0.0,
+                    0.0,
+                    att_x,
+                    0,
+                    ikind,
+                );
+                if drop_w {
+                    drops.push((self.characters[j].base.uid, 0.0, 0.0));
+                }
+                continue;
             }
-            // kind 4 / effect ice mapping
             if ikind == 4 && eff2 <= 0 {
                 eff2 = 3;
             }
             if (ikind == 3 || ikind == 5) && eff2 <= 0 {
                 eff2 = 2;
             }
-            // kind 15 whirlwind_force
             if ikind == 15 {
                 let az = self.characters[i].base.ps.z;
                 self.characters[j].base.whirlwind_force(att_x, az);
                 inj2 = inj2.max(5.0);
             }
-            // kind 10/11 flute
             if ikind == 10 || ikind == 11 {
                 self.characters[j].base.flute_force();
             }
 
-            let (drop_w, snd_eff) = self.characters[j].base.injure(
+            let ef_dvx = dvx * facing as f64;
+            let (accepted, drop_w, defended) = self.characters[j].apply_combat_hit(
                 inj2,
-                if ikind == 8 { 0.0 } else { fall },
-                dvx * facing as f64,
-                if ikind == 8 { 0.0 } else { dvy_use },
+                fall,
+                ef_dvx,
+                dvy_use,
                 att_x,
                 eff2,
+                bdef,
                 ikind,
             );
+            if !accepted {
+                continue;
+            }
             if drop_w {
-                let uid = self.characters[j].base.uid;
-                drops.push((uid, dvx * facing as f64, dvy_use));
+                drops.push((self.characters[j].base.uid, ef_dvx, dvy_use));
+            }
+            if inj2 > 0.0 {
+                self.credit_attack(att_uid, inj2.abs());
+                if self.characters[j].is_npc {
+                    if let Some(puid) = self.characters[j].parent_uid {
+                        self.offset_attack(puid, inj2.abs());
+                    }
+                }
             }
             if self.characters[j].base.hp <= 0.0 && !self.characters[j].base.dead {
-                self.characters[i].base.kills += 1;
+                self.credit_kill(att_uid, vic_uid);
             }
-            if bdef > 0.0 {
-                self.characters[j].base.bdefend += bdef;
+            if defended {
+                self.sound.play("1/002");
             }
-            match snd_eff {
+            match eff2 {
                 2 | 20 | 21 | 22 | 23 => self.sound.play("1/070"),
                 3 | 30 => {
                     if self.characters[j].base.state() == 13 {
@@ -776,7 +909,7 @@ impl Match {
                         self.sound.play("1/065");
                     }
                 }
-                0 | 1 => self.sound.play("1/002"),
+                0 | 1 if !defended => self.sound.play("1/002"),
                 _ => {}
             }
 
@@ -1168,82 +1301,98 @@ impl Match {
     }
 
     fn special_hits(&mut self) {
-        // specials hit characters
         let mut events = vec![];
         for (si, sp) in self.specials.iter().enumerate() {
-            if sp.base.removed { continue; }
-            let Some(frame) = sp.base.frame_data().cloned() else { continue };
+            if sp.base.removed {
+                continue;
+            }
+            let Some(frame) = sp.base.frame_data().cloned() else {
+                continue;
+            };
             let itrs = Mech::itr_volumes(&sp.base.ps, sp.base.facing, &frame);
             for (ci, ch) in self.characters.iter().enumerate() {
-                if ch.base.removed { continue; }
-                if sp.base.team != 0 && ch.base.team == sp.base.team { continue; }
-                let Some(vf) = ch.base.frame_data().cloned() else { continue };
+                if ch.base.removed {
+                    continue;
+                }
+                if sp.base.team != 0 && ch.base.team == sp.base.team {
+                    continue;
+                }
+                let Some(vf) = ch.base.frame_data().cloned() else {
+                    continue;
+                };
                 let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, &vf);
                 for (vol, itr) in &itrs {
                     if itr.kind == 9 {
-                        // john shield etc depletes type3 instantly when applied TO special — handled inverse
                         continue;
                     }
-                    if itr.kind != 0 && itr.kind != 3 { continue; }
+                    if itr.kind != 0 && itr.kind != 3 {
+                        continue;
+                    }
                     for b in &bdys {
                         if vol.intersects(b) {
-                            events.push((si, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy, itr.effect, itr.kind));
+                            let fall = if itr.fall != 0.0 {
+                                itr.fall
+                            } else {
+                                global::DEFAULT_FALL
+                            };
+                            events.push((
+                                si,
+                                ci,
+                                itr.injury, // F.LF: 0 stays 0
+                                fall,
+                                vol.vx,
+                                itr.dvy,
+                                itr.effect,
+                                itr.kind,
+                                itr.bdefend,
+                            ));
                         }
                     }
                 }
             }
         }
         let mut drops = vec![];
-        for (si, ci, inj, fall, dvx, dvy, eff, ikind) in events {
+        for (si, ci, inj, fall, dvx, dvy, eff, ikind, bdef) in events {
             let facing = self.specials[si].base.facing;
             let att_x = self.specials[si].base.ps.x;
-            // defend reduces special damage when facing the projectile
-            if self.characters[ci].base.state() == 7 {
-                let face_ball = (att_x > self.characters[ci].base.ps.x) == (self.characters[ci].base.facing < 0)
-                    || (att_x < self.characters[ci].base.ps.x) == (self.characters[ci].base.facing > 0);
-                // facing toward attacker x
-                let toward = (self.characters[ci].base.facing > 0 && att_x > self.characters[ci].base.ps.x)
-                    || (self.characters[ci].base.facing < 0 && att_x < self.characters[ci].base.ps.x);
-                if toward {
-                    self.characters[ci].base.bdefend += inj * 0.5;
-                    if self.characters[ci].base.bdefend < global::DEFEND_BREAK_LIMIT {
-                        self.specials[si].base.trans_frame(1000, 5);
-                        continue;
-                    }
-                }
-                let _ = face_ball;
-            }
-            if self.characters[ci].base.state() == 7 {
-                let toward = (self.characters[ci].base.facing > 0
-                    && att_x > self.characters[ci].base.ps.x)
-                    || (self.characters[ci].base.facing < 0
-                        && att_x < self.characters[ci].base.ps.x);
-                if toward {
-                    self.characters[ci].base.bdefend += inj * 0.5;
-                    if self.characters[ci].base.bdefend < global::DEFEND_BREAK_LIMIT {
-                        self.specials[si].base.trans_frame(1000, 5);
-                        continue;
-                    }
-                }
-            }
-            let next_frame = self.specials[si]
-                .base
-                .frame_data()
-                .map(|f| if f.next > 0 { f.next } else { 1000 })
-                .unwrap_or(1000);
-            let (drop_w, _) = self.characters[ci].base.injure(
+            let ef_dvx = dvx * facing as f64;
+            let (accepted, drop_w, defended) = self.characters[ci].apply_combat_hit(
                 inj,
                 fall,
-                dvx * facing as f64,
-                if dvy != 0.0 { dvy } else { -3.0 },
+                ef_dvx,
+                dvy,
                 att_x,
                 eff,
+                bdef,
                 ikind,
             );
+            if !accepted {
+                continue;
+            }
             if drop_w {
                 drops.push(self.characters[ci].base.uid);
             }
-            self.specials[si].base.trans_frame(next_frame, 5);
+            let credit = self.specials[si]
+                .credit_uid()
+                .unwrap_or(self.specials[si].base.uid);
+            if inj > 0.0 {
+                self.credit_attack(credit, inj.abs());
+            }
+            if self.characters[ci].base.hp <= 0.0 && !self.characters[ci].base.dead {
+                let vic = self.characters[ci].base.uid;
+                self.credit_kill(credit, vic);
+            }
+            // on effective defend, many balls dissolve (F.LF often hits frame then dies)
+            if defended {
+                self.specials[si].base.trans_frame(1000, 5);
+            } else {
+                let next_frame = self.specials[si]
+                    .base
+                    .frame_data()
+                    .map(|f| if f.next > 0 { f.next } else { 1000 })
+                    .unwrap_or(1000);
+                self.specials[si].base.trans_frame(next_frame, 5);
+            }
         }
         for uid in drops {
             self.drop_char_weapon(uid, 4.0, -3.0, 0.0);
@@ -1254,10 +1403,20 @@ impl Match {
     fn weapon_hits(&mut self) {
         let mut ev = vec![];
         for (wi, w) in self.weapons.iter().enumerate() {
-            if w.held || w.base.removed { continue; }
-            // only when moving fast in air / thrown
-            let spd = (w.base.ps.vx*w.base.ps.vx + w.base.ps.vy*w.base.ps.vy).sqrt();
-            if spd < 3.0 && w.base.ps.y >= 0.0 { continue; }
+            if w.held || w.base.removed {
+                continue;
+            }
+            // F.LF: team !== 0; heavy || (light && state === 1002); !arest
+            if w.base.team == 0 {
+                continue;
+            }
+            let st = w.base.state();
+            if !(w.heavy || (w.light && st == 1002)) {
+                continue;
+            }
+            if w.base.arest > 0 {
+                continue;
+            }
             let Some(frame) = w.base.frame_data().cloned() else { continue };
             let itrs = Mech::itr_volumes(&w.base.ps, w.base.facing, &frame);
             for (ci, ch) in self.characters.iter().enumerate() {
@@ -1266,37 +1425,74 @@ impl Match {
                 let Some(vf) = ch.base.frame_data().cloned() else { continue };
                 let bdys = Mech::body_volumes(&ch.base.ps, ch.base.facing, &vf);
                 for (vol, itr) in &itrs {
-                    if itr.kind != 0 && itr.kind != 3 { continue; }
+                    if itr.kind != 0 {
+                        continue;
+                    }
                     for b in &bdys {
                         if vol.intersects(b) {
-                            ev.push((wi, ci, itr.injury.max(15.0), itr.fall, vol.vx, itr.dvy));
+                            let fall = if itr.fall != 0.0 {
+                                itr.fall
+                            } else {
+                                global::DEFAULT_FALL
+                            };
+                            // F.LF weapon.interaction passes full ITR into character.hit
+                            ev.push((
+                                wi,
+                                ci,
+                                itr.injury,
+                                fall,
+                                vol.vx,
+                                itr.dvy,
+                                itr.arest,
+                                itr.effect,
+                                itr.bdefend,
+                            ));
                         }
                     }
                 }
             }
         }
         let mut drops = vec![];
-        for (wi, ci, inj, fall, dvx, dvy) in ev {
+        let mut weapon_spent = std::collections::HashSet::new();
+        for (wi, ci, inj, fall, dvx, dvy, arest, effect, bdef) in ev {
+            if weapon_spent.contains(&wi) || self.weapons[wi].base.arest > 0 {
+                continue;
+            }
             let facing = self.weapons[wi].base.facing;
             let att_x = self.weapons[wi].base.ps.x;
-            let (drop_w, _) = self.characters[ci].base.injure(
+            let ef_dvx = dvx * facing as f64;
+            let (accepted, drop_w, _defended) = self.characters[ci].apply_combat_hit(
                 inj,
                 fall,
-                dvx * facing as f64,
-                if dvy != 0.0 { dvy } else { -4.0 },
+                ef_dvx,
+                dvy,
                 att_x,
-                0,
+                effect,
+                bdef,
                 0,
             );
+            if !accepted {
+                continue;
+            }
             if drop_w {
                 drops.push(self.characters[ci].base.uid);
             }
-            // weapon rebound (F.LF typeweapon.hit reverse/bounce)
-            let _ = self.weapons[wi].on_hit_by(facing, dvx, 0.0, fall, 0.0);
-            if self.weapons[wi].base.ps.vx.abs() < 0.1 {
-                self.weapons[wi].base.ps.vx *= -0.4;
-                self.weapons[wi].base.ps.vy = -2.0;
+            let credit = self.weapons[wi]
+                .attacked_credit_uid()
+                .unwrap_or(self.weapons[wi].base.uid);
+            if inj > 0.0 {
+                self.credit_attack(credit, inj.abs());
             }
+            if self.characters[ci].base.hp <= 0.0 && !self.characters[ci].base.dead {
+                let vic = self.characters[ci].base.uid;
+                self.credit_kill(credit, vic);
+            }
+            self.weapons[wi].base.itr_arest_update(arest);
+            if arest > 0 {
+                weapon_spent.insert(wi);
+            }
+            // weapon rebound when *hitting* a character (F.LF interaction after attacked)
+            self.weapons[wi].after_hit_character();
             let hit_snd = self.weapons[wi].base.data.bmp.weapon_hit_sound.clone();
             if !hit_snd.is_empty() {
                 self.sound.play(&hit_snd);
@@ -1419,8 +1615,7 @@ impl Match {
             *ch = neu;
             if let Some(vid) = hold {
                 if let Some(vic) = self.characters.iter_mut().find(|c| c.base.uid == vid) {
-                    vic.base.held_by = None;
-                    vic.base.trans_frame(212, 10);
+                    vic.caught_release();
                 }
             }
             let _ = was_transform;
@@ -1470,40 +1665,116 @@ impl Match {
     }
 
 
+    /// Character itr hits specialattack — F.LF state 3000/3006 hit reactions
     fn char_hits_specials(&mut self) {
-        let mut kill = vec![];
-        for (ci, ch) in self.characters.iter().enumerate() {
-            if ch.base.removed || ch.base.arest > 0 { continue; }
-            let Some(frame) = ch.base.frame_data().cloned() else { continue };
+        // (si, next_frame, new_team, reverse_vx, vz_bump)
+        let mut reactions: Vec<(usize, i32, Option<i32>, Option<f64>, f64)> = vec![];
+        for ch in self.characters.iter() {
+            if ch.base.removed || ch.base.arest > 0 {
+                continue;
+            }
+            let att_state = ch.base.state();
+            let att_team = ch.base.team;
+            let Some(frame) = ch.base.frame_data().cloned() else {
+                continue;
+            };
             let itrs = Mech::itr_volumes(&ch.base.ps, ch.base.facing, &frame);
             for (si, sp) in self.specials.iter().enumerate() {
-                if sp.base.removed { continue; }
-                if sp.base.team == ch.base.team && ch.base.team != 0 { continue; }
-                let Some(sf) = sp.base.frame_data().cloned() else { continue };
+                if sp.base.removed {
+                    continue;
+                }
+                let sp_state = sp.base.state();
+                let Some(sf) = sp.base.frame_data().cloned() else {
+                    continue;
+                };
                 let bdys = Mech::body_volumes(&sp.base.ps, sp.base.facing, &sf);
+                let sp_itr_kind = sf.itr.first().map(|i| i.kind).unwrap_or(-1);
+                let sp_itr_effect = sf.itr.first().map(|i| i.effect).unwrap_or(0);
                 for (vol, itr) in &itrs {
                     for b in &bdys {
-                        if !vol.intersects(b) { continue; }
-                        if itr.kind == 9 {
-                            kill.push(si);
-                        } else if itr.kind == 14 {
-                            // ice column — break immediately
-                            kill.push(si);
+                        if !vol.intersects(b) {
+                            continue;
+                        }
+                        // ice column kind 14 on special
+                        if sp_itr_kind == 14 {
+                            reactions.push((si, 20, None, Some(0.0), 0.0));
+                            continue;
+                        }
+                        // 3006 john shield / tough ball
+                        if sp_state == 3006 {
+                            if itr.kind == 9 {
+                                // reflect
+                                reactions.push((
+                                    si,
+                                    -1,
+                                    None,
+                                    Some(sp.base.ps.vx * -1.0),
+                                    0.3,
+                                ));
+                            } else if itr.kind == 0 {
+                                let mut vx = if sp.base.ps.vx > 0.0 { -1.0 } else { 1.0 };
+                                if itr.bdefend > global::DEFEND_BREAK_LIMIT {
+                                    reactions.push((si, 1000, None, Some(0.0), 0.0));
+                                } else {
+                                    vx *= 1.0;
+                                    reactions.push((si, -1, None, Some(vx), 0.0));
+                                }
+                            }
+                            continue;
+                        }
+                        // state 3000 ball flying
+                        if sp_state == 3000 || (3000..=3004).contains(&sp_state) {
+                            // freeze ball hit by non-freeze: absorb (ignore)
+                            if sp_itr_effect == 3
+                                && itr.effect != 3
+                                && itr.effect != 2
+                            {
+                                continue;
+                            }
+                            // firerun destroys 3000
+                            if att_state == 19 {
+                                reactions.push((si, 20, None, Some(0.0), 0.0));
+                                continue;
+                            }
+                            // kind 0 or 9 deflect → rebound frame 30, adopt team
+                            if itr.kind == 0 || itr.kind == 9 {
+                                reactions.push((si, 30, Some(att_team), Some(0.0), 0.0));
+                                continue;
+                            }
+                        }
+                        if itr.kind == 9 || itr.kind == 14 {
+                            reactions.push((si, 1000, None, Some(0.0), 0.0));
                         } else if itr.kind == 0 {
-                            // damage type3
-                            kill.push(si); // destroy ball on hit often
+                            // hitting frame 20 for normal balls
+                            let nf = if sp_state == 3001 { 1000 } else { 20 };
+                            reactions.push((si, nf, None, Some(0.0), 0.0));
                         }
                     }
                 }
             }
-            let _ = ci;
         }
-        kill.sort_unstable();
-        kill.dedup();
-        for si in kill.into_iter().rev() {
-            if si < self.specials.len() {
-                self.specials[si].base.hp = 0.0;
-                self.specials[si].base.trans_frame(1000, 5);
+        for (si, nf, team, vx, vz_bump) in reactions {
+            if si >= self.specials.len() {
+                continue;
+            }
+            if let Some(t) = team {
+                self.specials[si].base.team = t;
+            }
+            if let Some(v) = vx {
+                self.specials[si].base.ps.vx = v;
+            }
+            self.specials[si].base.ps.z += vz_bump;
+            if nf == 1000 {
+                self.specials[si].mark_die(1000);
+            } else if nf > 0 {
+                self.specials[si].base.trans_frame(nf, 5);
+                // F.LF: transit + TU_update twice on rebound
+                if nf == 30 {
+                    self.specials[si].base.apply_transit();
+                    self.specials[si].base.recover_tu();
+                    self.specials[si].base.apply_transit();
+                    self.specials[si].base.recover_tu();
+                }
             }
         }
     }
@@ -1511,14 +1782,68 @@ impl Match {
     fn spawn_opoints(&mut self) {
         let mut spawns = vec![];
         let mut spawned_uids = vec![];
+        let mut npc_batches: Vec<(u32, i32, i32, Vec<(f64, f64, f64)>)> = vec![];
         for ch in &self.characters {
             if let Some(fd) = ch.base.frame_data() {
                 if let Some(op) = &fd.opoint {
                     // spawn on first TU of frame (wait == original wait)
                     if !ch.base.opoint_spawned && ch.base.frame.wait_left == fd.wait && op.oid != 0 {
+                        // F.LF: oid 5 creates character copies (facing/10 count)
+                        if op.oid == 5 {
+                            let n = (op.facing.abs() / 10).max(1) as usize;
+                            let mut positions = vec![];
+                            for i in 0..n {
+                                positions.push((
+                                    ch.base.ps.x + 20.0 * (-(i as f64)),
+                                    ch.base.ps.y,
+                                    ch.base.ps.z,
+                                ));
+                            }
+                            npc_batches.push((ch.base.uid, ch.base.id, ch.base.team, positions));
+                            spawned_uids.push(ch.base.uid);
+                            continue;
+                        }
                         let x = ch.base.ps.x + (op.x - fd.centerx) * ch.base.facing as f64;
                         let y = ch.base.ps.y + (op.y - fd.centery);
-                        spawns.push((op.oid, ch.base.team, x, y, ch.base.ps.z, ch.base.facing, op.action, op.dvx, op.dvy, op.kind));
+                        let face_abs = op.facing.abs();
+                        if face_abs > 10 {
+                            let number = face_abs / 10;
+                            let vz_step = if op.dvz != 0.0 { op.dvz } else { 3.0 };
+                            for i in 0..number {
+                                let vz = (i as f64 - (number as f64 - 1.0) / 2.0) * vz_step;
+                                spawns.push((
+                                    op.oid,
+                                    ch.base.team,
+                                    x,
+                                    y,
+                                    ch.base.ps.z + vz * 0.01,
+                                    ch.base.facing,
+                                    op.action,
+                                    op.dvx,
+                                    op.dvy,
+                                    op.kind,
+                                    op.facing % 10,
+                                    ch.base.uid,
+                                    ch.base.ps.y,
+                                ));
+                            }
+                        } else {
+                            spawns.push((
+                                op.oid,
+                                ch.base.team,
+                                x,
+                                y,
+                                ch.base.ps.z,
+                                ch.base.facing,
+                                op.action,
+                                op.dvx,
+                                op.dvy,
+                                op.kind,
+                                op.facing,
+                                ch.base.uid,
+                                ch.base.ps.y,
+                            ));
+                        }
                         spawned_uids.push(ch.base.uid);
                     }
                 }
@@ -1529,7 +1854,12 @@ impl Match {
                 ch.base.opoint_spawned = true;
             }
         }
-        for (oid, team, x, y, z, facing, action, dvx, dvy, okind) in spawns {
+        for (parent_uid, id, team, positions) in npc_batches {
+            self.create_non_player_characters(parent_uid, id, team, &positions, 20.0);
+        }
+        for (oid, team, x, y, z, facing, action, dvx, dvy, okind, op_face, parent_uid, parent_y) in
+            spawns
+        {
             if let Some(data) = self.package_objects.get(&oid).cloned() {
                 let ty = data.obj_type.as_str();
                 if okind == 1 && (oid >= 300 || ty == "effect" || ty.is_empty() && oid >= 300) {
@@ -1550,10 +1880,18 @@ impl Match {
                     self.weapons.push(w);
                 } else {
                     let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing)
+                        .with_parent(parent_uid, parent_y)
                         .with_velocity(dvx, dvy);
                     self.next_uid += 1;
+                    s.apply_opoint_facing(facing, op_face);
+                    // re-apply velocity with possibly flipped facing
+                    if dvx != 0.0 && dvx as i32 != global::UNSPECIFIED {
+                        s.base.ps.vx = dvx * s.base.facing as f64;
+                    }
                     if action != 0 {
                         s.base.trans_frame(action, 0);
+                    } else {
+                        s.base.trans_frame(999, 0);
                     }
                     self.specials.push(s);
                 }
@@ -1582,6 +1920,7 @@ impl Match {
             }
             let x = sp.base.ps.x + (op.x - fd.centerx) * sp.base.facing as f64;
             let y = sp.base.ps.y + (op.y - fd.centery);
+            let op_face = op.facing;
             spawns.push((
                 si,
                 op.oid,
@@ -1593,9 +1932,14 @@ impl Match {
                 op.action,
                 op.dvx,
                 op.dvy,
+                op_face,
+                sp.base.uid,
+                sp.base.ps.y,
             ));
         }
-        for (si, oid, team, x, y, z, facing, action, dvx, dvy) in spawns {
+        for (si, oid, team, x, y, z, facing, action, dvx, dvy, op_face, parent_uid, parent_y) in
+            spawns
+        {
             if si < self.specials.len() {
                 self.specials[si].opoint_done = true;
             }
@@ -1603,10 +1947,17 @@ impl Match {
                 let ty = data.obj_type.clone();
                 if ty == "specialattack" || ty.is_empty() || data.id >= 200 && data.id < 300 {
                     let mut s = SpecialAttack::new(self.next_uid, data, team, x, y, z, facing)
+                        .with_parent(parent_uid, parent_y)
                         .with_velocity(dvx, dvy);
                     self.next_uid += 1;
+                    s.apply_opoint_facing(facing, op_face);
+                    if dvx != 0.0 && dvx as i32 != global::UNSPECIFIED {
+                        s.base.ps.vx = dvx * s.base.facing as f64;
+                    }
                     if action != 0 {
                         s.base.trans_frame(action, 0);
+                    } else {
+                        s.base.trans_frame(999, 0);
                     }
                     self.specials.push(s);
                 } else {
@@ -1621,10 +1972,11 @@ impl Match {
         }
     }
 
-    /// Ball vs ball: ice/fire clash from specialattack.js
+    /// Ball vs ball: ice/fire / 3006 shield from specialattack.js state 3000/3006
     fn special_vs_special(&mut self) {
         let n = self.specials.len();
-        let mut die: Vec<usize> = vec![];
+        // (si, frame, team_opt, vx_opt)
+        let mut react: Vec<(usize, i32, Option<i32>, Option<f64>)> = vec![];
         let mut shards: Vec<(f64, f64, f64)> = vec![];
         for a in 0..n {
             if self.specials[a].base.removed {
@@ -1633,6 +1985,9 @@ impl Match {
             let Some(fa) = self.specials[a].base.frame_data().cloned() else {
                 continue;
             };
+            let st_a = self.specials[a].base.state();
+            let eff_a = self.specials[a].itr_effect();
+            let kind_a = fa.itr.first().map(|i| i.kind).unwrap_or(0);
             let itrs_a = Mech::itr_volumes(
                 &self.specials[a].base.ps,
                 self.specials[a].base.facing,
@@ -1642,21 +1997,23 @@ impl Match {
                 if self.specials[b].base.removed {
                     continue;
                 }
-                // same team head-on only cancel if opposing dirs
                 let same_team = self.specials[a].base.team == self.specials[b].base.team
                     && self.specials[a].base.team != 0;
                 if same_team && self.specials[a].base.facing == self.specials[b].base.facing {
+                    // kind 0 same team same dir — no clash
                     continue;
                 }
                 let Some(fb) = self.specials[b].base.frame_data().cloned() else {
                     continue;
                 };
+                let st_b = self.specials[b].base.state();
+                let eff_b = self.specials[b].itr_effect();
+                let kind_b = fb.itr.first().map(|i| i.kind).unwrap_or(0);
                 let bdys_b = Mech::body_volumes(
                     &self.specials[b].base.ps,
                     self.specials[b].base.facing,
                     &fb,
                 );
-                // also itr vs itr / body
                 let itrs_b = Mech::itr_volumes(
                     &self.specials[b].base.ps,
                     self.specials[b].base.facing,
@@ -1676,44 +2033,140 @@ impl Match {
                             break;
                         }
                     }
+                    if hit {
+                        break;
+                    }
                 }
                 if !hit {
                     continue;
                 }
-                let a_ice = self.specials[a].is_ice_ball();
-                let b_ice = self.specials[b].is_ice_ball();
-                let a_fire = self.specials[a].is_fire_ball();
-                let b_fire = self.specials[b].is_fire_ball();
-                // non-ice hit by ice → destroy non-ice, spawn 209
-                if a_ice && !b_ice {
-                    die.push(b);
+
+                // 3006 vs 3005/3006 → destroy frames
+                if st_a == 3006 && (st_b == 3005 || st_b == 3006) {
+                    react.push((a, 10, None, Some(0.0)));
+                    react.push((b, 10, None, Some(0.0)));
+                    continue;
+                }
+                if st_b == 3006 && (st_a == 3005 || st_a == 3006) {
+                    react.push((b, 10, None, Some(0.0)));
+                    react.push((a, 10, None, Some(0.0)));
+                    continue;
+                }
+                // 3006 deflects 3000
+                if st_a == 3006 && st_b == 3000 {
+                    let vx = if self.specials[b].base.ps.vx > 0.0 {
+                        -7.0
+                    } else {
+                        7.0
+                    };
+                    react.push((b, -1, None, Some(vx)));
+                    continue;
+                }
+                if st_b == 3006 && st_a == 3000 {
+                    let vx = if self.specials[a].base.ps.vx > 0.0 {
+                        -7.0
+                    } else {
+                        7.0
+                    };
+                    react.push((a, -1, None, Some(vx)));
+                    continue;
+                }
+                // kind 9 shield itr deflects balls
+                if kind_a == 9 && st_b == 3000 {
+                    react.push((
+                        b,
+                        30,
+                        Some(self.specials[a].base.team),
+                        Some(0.0),
+                    ));
+                    continue;
+                }
+                if kind_b == 9 && st_a == 3000 {
+                    react.push((
+                        a,
+                        30,
+                        Some(self.specials[b].base.team),
+                        Some(0.0),
+                    ));
+                    continue;
+                }
+
+                let a_ice = eff_a == 3;
+                let b_ice = eff_b == 3;
+                let a_fire = eff_a == 2 || eff_a == 20 || eff_a == 21;
+                let b_fire = eff_b == 2 || eff_b == 20 || eff_b == 21;
+                // freeze ball hits non-freeze/non-fire → non-freeze dies + ice shards oid 209
+                if a_ice && !b_ice && !b_fire {
+                    react.push((b, 1000, None, Some(0.0)));
                     shards.push((
                         self.specials[b].base.ps.x,
                         self.specials[b].base.ps.y,
                         self.specials[b].base.ps.z,
                     ));
-                } else if b_ice && !a_ice {
-                    die.push(a);
+                    // freeze ball continues (hit_others returns early on freeze vs non)
+                    continue;
+                }
+                if b_ice && !a_ice && !a_fire {
+                    react.push((a, 1000, None, Some(0.0)));
                     shards.push((
                         self.specials[a].base.ps.x,
                         self.specials[a].base.ps.y,
                         self.specials[a].base.ps.z,
                     ));
-                } else if a_fire && b_fire || a_ice && b_ice || (!a_ice && !b_ice) {
-                    // mutual destroy
-                    die.push(a);
-                    die.push(b);
+                    continue;
+                }
+                // non-ice hit by ice (attacker ice effect on victim non-ice)
+                if !a_ice && !a_fire && b_ice {
+                    react.push((a, 1000, None, Some(0.0)));
+                    shards.push((
+                        self.specials[a].base.ps.x,
+                        self.specials[a].base.ps.y,
+                        self.specials[a].base.ps.z,
+                    ));
+                    continue;
+                }
+                if !b_ice && !b_fire && a_ice {
+                    react.push((b, 1000, None, Some(0.0)));
+                    shards.push((
+                        self.specials[b].base.ps.x,
+                        self.specials[b].base.ps.y,
+                        self.specials[b].base.ps.z,
+                    ));
+                    continue;
+                }
+                // normal ball clash → hitting frame 10
+                if st_a == 3000 || st_a == 3001 {
+                    react.push((a, 10, None, Some(0.0)));
                 } else {
-                    die.push(a);
-                    die.push(b);
+                    react.push((a, 1000, None, Some(0.0)));
+                }
+                if st_b == 3000 || st_b == 3001 {
+                    react.push((b, 10, None, Some(0.0)));
+                } else {
+                    react.push((b, 1000, None, Some(0.0)));
                 }
             }
         }
-        die.sort_unstable();
-        die.dedup();
-        for si in die.into_iter().rev() {
-            if si < self.specials.len() {
+        for (si, nf, team, vx) in react {
+            if si >= self.specials.len() {
+                continue;
+            }
+            if let Some(t) = team {
+                self.specials[si].base.team = t;
+            }
+            if let Some(v) = vx {
+                self.specials[si].base.ps.vx = v;
+            }
+            if nf == 1000 {
                 self.specials[si].mark_die(1000);
+            } else if nf > 0 {
+                self.specials[si].base.trans_frame(nf, 5);
+                if nf == 30 {
+                    self.specials[si].base.apply_transit();
+                    self.specials[si].base.recover_tu();
+                    self.specials[si].base.apply_transit();
+                    self.specials[si].base.recover_tu();
+                }
             }
         }
         for (x, y, z) in shards {
@@ -2161,6 +2614,117 @@ impl Match {
         }
     }
 
+    /// F.LF character.attacked / specialattack.attacked / weapon.attacked credit
+    pub fn credit_attack(&mut self, attacker_uid: u32, inj: f64) {
+        if inj <= 0.0 {
+            return;
+        }
+        if let Some(idx) = self.characters.iter().position(|c| c.base.uid == attacker_uid) {
+            if self.characters[idx].is_npc {
+                if let Some(puid) = self.characters[idx].parent_uid {
+                    if let Some(p) = self.characters.iter_mut().find(|c| c.base.uid == puid) {
+                        p.attacked(inj);
+                        return;
+                    }
+                }
+            }
+            self.characters[idx].attacked(inj);
+        }
+    }
+
+    /// F.LF character.offset_attack
+    pub fn offset_attack(&mut self, uid: u32, inj: f64) {
+        if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == uid) {
+            ch.offset_attack(inj);
+        }
+    }
+
+    /// F.LF character.killed + victim.die
+    pub fn credit_kill(&mut self, attacker_uid: u32, victim_uid: u32) {
+        let att_is_npc = self
+            .characters
+            .iter()
+            .find(|c| c.base.uid == attacker_uid)
+            .map(|c| c.is_npc)
+            .unwrap_or(false);
+        let parent = self
+            .characters
+            .iter()
+            .find(|c| c.base.uid == attacker_uid)
+            .and_then(|c| c.parent_uid);
+        let kill_uid = if att_is_npc {
+            parent.unwrap_or(attacker_uid)
+        } else {
+            attacker_uid
+        };
+        if let Some(ch) = self.characters.iter_mut().find(|c| c.base.uid == kill_uid) {
+            ch.killed();
+        }
+        if let Some(vic) = self.characters.iter_mut().find(|c| c.base.uid == victim_uid) {
+            vic.die(att_is_npc);
+        }
+    }
+
+    /// F.LF match.create_non_player_characters (opoint oid 5 Rudolf copies etc.)
+    pub fn create_non_player_characters(
+        &mut self,
+        parent_uid: u32,
+        id: i32,
+        team: i32,
+        positions: &[(f64, f64, f64)],
+        hp: f64,
+    ) {
+        let Some(data) = self.package_objects.get(&id).cloned() else {
+            return;
+        };
+        for &(x, y, z) in positions {
+            let mut ch = Character::new(self.next_uid, data.clone(), team, x, z);
+            self.next_uid += 1;
+            ch.base.ps.y = y;
+            ch.base.ai = true;
+            ch.is_npc = true;
+            ch.parent_uid = Some(parent_uid);
+            ch.base.name = format!("+{}", data.bmp.name);
+            let h = if hp > 0.0 { hp } else { 20.0 };
+            ch.base.hp = h;
+            ch.base.hp_full = h;
+            ch.base.hp_bound = h;
+            ch.base.mp = 100.0;
+            ch.base.mp_full = 100.0;
+            ch.base.properties = self.properties.clone();
+            let script = self
+                .ai_script_pool
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "dumbass".into());
+            let mut brain = crate::lf::ai::AiBrain::default();
+            brain.script_name = script;
+            self.ai_brains.push(brain);
+            self.characters.push(ch);
+        }
+    }
+
+    /// Summary rows for manager summary_dialog (F.LF set_row_data shape)
+    pub fn summary_rows(&self) -> Vec<(String, i32, f64, f64, i32)> {
+        self.characters
+            .iter()
+            .filter(|c| !c.is_npc)
+            .map(|c| {
+                (
+                    c.base.name.clone(),
+                    c.base.kills,
+                    c.stat_attack,
+                    c.base.hp.max(0.0),
+                    c.base.team,
+                )
+            })
+            .collect()
+    }
+
+    pub fn match_time_tu(&self) -> u32 {
+        self.time
+    }
+
     pub fn create_weapon(&mut self, id: i32, x: f64, z: f64) {
         self.create_object(id, 0, x, 0.0, z, 1, 0, 0.0, 0.0);
     }
@@ -2258,35 +2822,44 @@ impl Match {
         self.overlay_message("F9 destroy weapons");
     }
 
-    /// Update chase ball targets (nearest enemy to ball team)
+    /// Update chase ball targets — F.LF chase_target with chased[] score bias
     pub fn update_special_chase_targets(&mut self) {
         for sp in &mut self.specials {
             if sp.base.removed {
                 continue;
             }
-            let st = sp.base.state();
             let hit_fa = sp
                 .base
                 .frame_data()
                 .map(|f| f.hit_Fa)
                 .unwrap_or(0);
-            if hit_fa == 0 && !(3002..=3010).contains(&st) {
+            if hit_fa != 1 && hit_fa != 2 {
                 continue;
             }
             let team = sp.base.team;
             let sx = sp.base.ps.x;
             let sz = sp.base.ps.z;
+            let mut best_uid = None;
             let mut best = None;
-            let mut best_d = f64::MAX;
+            let mut best_score = f64::MAX;
             for ch in &self.characters {
                 if ch.base.removed || ch.base.hp <= 0.0 || ch.base.team == team {
                     continue;
                 }
-                let d = (ch.base.ps.x - sx).hypot(ch.base.ps.z - sz);
-                if d < best_d {
-                    best_d = d;
-                    best = Some((ch.base.ps.x, ch.base.ps.z));
+                let dx = ch.base.ps.x - sx;
+                let dz = ch.base.ps.z - sz;
+                let mut score = (dx * dx + dz * dz).sqrt();
+                if let Some(&n) = sp.chased_counts.get(&ch.base.uid) {
+                    score += 500.0 * n as f64;
                 }
+                if score < best_score {
+                    best_score = score;
+                    best = Some((ch.base.ps.x, ch.base.ps.z));
+                    best_uid = Some(ch.base.uid);
+                }
+            }
+            if let Some(uid) = best_uid {
+                *sp.chased_counts.entry(uid).or_insert(0) += 1;
             }
             if let Some((x, z)) = best {
                 sp.chase_x = x;
@@ -2317,22 +2890,89 @@ impl Match {
         self.camera_x += (target - self.camera_x) * global::CAMERA_SPEED_FACTOR * 4.0;
     }
 
+    /// F.LF check_gameover — arm gameover_state, fire gameover at t+30
     fn check_game_over(&mut self) {
+        if self.demo_mode {
+            return;
+        }
         let mut teams = std::collections::HashSet::new();
         for ch in &self.characters {
             if !ch.base.removed && ch.base.hp > 0.0 {
                 teams.insert(ch.base.team);
             }
         }
-        if teams.len() <= 1 && self.time > 90 {
-            self.game_over = true;
-            self.winner_team = teams.into_iter().next();
-            let mut msg = "GAME OVER".to_string();
-            if let Some(w) = self.winner_team {
-                msg = format!("GAME OVER — team {} wins", w);
+        if teams.len() < 2 && self.time > 90 {
+            if self.gameover_state.is_none() {
+                self.gameover_state = Some(self.time);
+            } else if gameover_fires_at(self.time, self.gameover_state) {
+                self.finish_gameover(teams.into_iter().next());
             }
-            self.overlay_message(&msg);
-            self.overlay_ttl = 9999;
+        } else if self.gameover_state.is_some() {
+            // more than one team alive again — cancel (F.LF clears and still calls gameover)
+            self.gameover_state = None;
+        }
+    }
+
+    fn finish_gameover(&mut self, winner: Option<i32>) {
+        self.game_over = true;
+        self.winner_team = winner;
+        let mut msg = "GAME OVER".to_string();
+        if let Some(w) = winner {
+            msg = format!("GAME OVER — team {} wins", w);
+        }
+        self.overlay_message(&msg);
+        self.overlay_ttl = 9999;
+    }
+
+    /// F.LF blocking_xz — characters whose body+vx/vz would hit itr kind 14
+    pub fn update_blocking_xz(&mut self) {
+        let n = self.characters.len();
+        let mut blocked = vec![false; n];
+        // collect kind-14 volumes from specials (ice columns) and characters
+        let mut blockers: Vec<crate::core_engine::collision::Volume> = vec![];
+        for sp in &self.specials {
+            if sp.base.removed {
+                continue;
+            }
+            let Some(fd) = sp.base.frame_data() else {
+                continue;
+            };
+            for (vol, itr) in Mech::itr_volumes(&sp.base.ps, sp.base.facing, fd) {
+                if itr.kind == 14 {
+                    let mut v = vol;
+                    v.zwidth = 0.0;
+                    blockers.push(v);
+                }
+            }
+        }
+        for (i, ch) in self.characters.iter().enumerate() {
+            if ch.base.removed || blockers.is_empty() {
+                continue;
+            }
+            let Some(fd) = ch.base.frame_data() else {
+                continue;
+            };
+            // body offset by velocity (F.LF)
+            let mut ps = ch.base.ps;
+            ps.x += ch.base.ps.vx;
+            ps.z += ch.base.ps.vz;
+            let bodies = Mech::body_volumes(&ps, ch.base.facing, fd);
+            for b in &bodies {
+                let mut bb = *b;
+                bb.zwidth = 0.0;
+                for bl in &blockers {
+                    if bb.intersects(bl) {
+                        blocked[i] = true;
+                        break;
+                    }
+                }
+                if blocked[i] {
+                    break;
+                }
+            }
+        }
+        for (i, b) in blocked.into_iter().enumerate() {
+            self.characters[i].base.block_xz = b;
         }
     }
 
@@ -2478,19 +3118,23 @@ impl Match {
         }
     }
 
+    /// F.LF match.show_hp — dual HP bar (bound dark + bright) + MP; heal flash
     fn draw_panels(&self, ren: &mut CanvasRenderer) {
-        // LF2-style top panels
-        let pane_w = 198.0;
-        let pane_h = 53.0;
-        for (i, ch) in self.characters.iter().enumerate().take(4) {
-            let x = 5.0 + (i as f64) * pane_w;
-            let y = 6.0;
+        let (pane_w, pane_h, hpw, hph, mpw, mph) = self.panel_metrics();
+        let display: Vec<_> = self
+            .characters
+            .iter()
+            .filter(|c| !c.is_npc)
+            .take(8)
+            .collect();
+        for (i, ch) in display.iter().enumerate() {
+            let x = 5.0 + ((i % 4) as f64) * pane_w;
+            let y = 6.0 + ((i / 4) as f64) * pane_h;
             if let Some(panel) = &self.ui_panel {
-                let pic = panel["pic"].as_str().unwrap_or("UI/panel.png");
-                // can't mut borrow ren easily for ensure — use fill fallback
-                let _ = pic;
+                if let Some(pic) = panel["pic"].as_str() {
+                    ren.draw_image_scaled(pic, x, y, pane_w - 4.0, pane_h);
+                }
             }
-            // team tint border
             let border = match ch.base.team {
                 1 => "rgba(40,40,120,0.95)",
                 2 => "rgba(120,40,40,0.95)",
@@ -2500,30 +3144,54 @@ impl Match {
             };
             ren.fill_rect_color(x, y, pane_w - 4.0, pane_h, border);
             ren.fill_rect_color(x + 2.0, y + 2.0, pane_w - 8.0, pane_h - 4.0, "#1a1a2e");
-            // HP
             let hpx = x + 50.0;
             let hpy = y + 12.0;
-            let hpw = 125.0;
-            let hph = 10.0;
-            ren.fill_rect_color(hpx, hpy, hpw, hph, "#6f081f");
-            let pct = (ch.base.hp / ch.base.hp_full).clamp(0.0, 1.0);
-            ren.fill_rect_color(hpx, hpy, hpw * pct, hph, if pct > 0.3 { "#ff0000" } else { "#ff8888" });
-            // MP
+            let full = ch.base.hp_full.max(1.0);
+            let bound_w = (ch.base.hp_bound / full * hpw).clamp(0.0, hpw);
+            let hp_w = (ch.base.hp / full * hpw).clamp(0.0, hpw);
+            ren.fill_rect_color(hpx, hpy, hpw, hph, "#3a0a14");
+            ren.fill_rect_color(hpx, hpy, bound_w, hph, "#6f081f");
+            let heal_flash = ch.base.effect.heal > 0.0 && self.time % 3 == 0;
+            let hp_col = if heal_flash {
+                "#ffaaaa"
+            } else if hp_w / hpw > 0.3 {
+                "#ff0000"
+            } else {
+                "#ff8888"
+            };
+            ren.fill_rect_color(hpx, hpy, hp_w, hph, hp_col);
             let mpy = y + 28.0;
-            ren.fill_rect_color(hpx, mpy, hpw, hph, "#1f086f");
-            let mpct = (ch.base.mp / ch.base.mp_full).clamp(0.0, 1.0);
-            ren.fill_rect_color(hpx, mpy, hpw * mpct, hph, "#0000ff");
-            let head = &ch.base.data.bmp.head;
-            if !head.is_empty() {
-                // need mut ren - method is &self draw_panels - change to &mut self
-            }
+            ren.fill_rect_color(hpx, mpy, mpw, mph, "#1f086f");
+            let mp_w = (ch.base.mp / ch.base.mp_full.max(1.0) * mpw).clamp(0.0, mpw);
+            ren.fill_rect_color(hpx, mpy, mp_w, mph, "#0000ff");
             if !ch.base.data.bmp.head.is_empty() {
                 ren.draw_image_scaled(&ch.base.data.bmp.head, x + 4.0, y + 8.0, 40.0, 40.0);
             }
             ren.fill_text(&ch.base.name, x + 48.0, y + 48.0, "#afdcff", "11px sans-serif");
             if ch.base.kills > 0 {
-                ren.fill_text(&format!("K:{}", ch.base.kills), x + pane_w - 36.0, y + 48.0, "#ffaa00", "10px sans-serif");
+                ren.fill_text(
+                    &format!("K:{}", ch.base.kills),
+                    x + pane_w - 36.0,
+                    y + 48.0,
+                    "#ffaa00",
+                    "10px sans-serif",
+                );
             }
+        }
+    }
+
+    fn panel_metrics(&self) -> (f64, f64, f64, f64, f64, f64) {
+        if let Some(p) = &self.ui_panel {
+            (
+                p["pane_width"].as_f64().unwrap_or(198.0),
+                p["pane_height"].as_f64().unwrap_or(53.0),
+                p["hpw"].as_f64().unwrap_or(125.0),
+                p["hph"].as_f64().unwrap_or(10.0),
+                p["mpw"].as_f64().unwrap_or(125.0),
+                p["mph"].as_f64().unwrap_or(10.0),
+            )
+        } else {
+            (198.0, 53.0, 125.0, 10.0, 125.0, 10.0)
         }
     }
 }

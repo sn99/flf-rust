@@ -60,3 +60,35 @@ pub fn log(msg: &str) {
 pub fn error(msg: &str) {
     web_sys::console::error_1(&msg.into());
 }
+
+/// F.LF core/util.make_array
+pub fn make_array<T: Clone>(v: Option<&[T]>) -> Vec<T> {
+    v.map(|s| s.to_vec()).unwrap_or_default()
+}
+
+/// F.LF core/util.push_unique
+pub fn push_unique<T: PartialEq>(vec: &mut Vec<T>, item: T) {
+    if !vec.contains(&item) {
+        vec.push(item);
+    }
+}
+
+/// F.LF core/util.extend_object — shallow merge into base map
+pub fn extend_object(
+    base: &mut serde_json::Map<String, serde_json::Value>,
+    extra: &serde_json::Map<String, serde_json::Value>,
+) {
+    for (k, v) in extra {
+        base.insert(k.clone(), v.clone());
+    }
+}
+
+/// F.LF core/util.search_array
+pub fn search_array<'a, T, F: Fn(&T) -> bool>(arr: &'a [T], pred: F) -> Option<&'a T> {
+    arr.iter().find(|x| pred(x))
+}
+
+/// F.LF game/game.js util_div
+pub fn util_div(class: &str) -> Option<HtmlElement> {
+    div_class(class)
+}

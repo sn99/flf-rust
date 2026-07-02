@@ -118,6 +118,7 @@ pub struct OPoint {
     pub action: i32,
     pub dvx: f64,
     pub dvy: f64,
+    pub dvz: f64,
     pub oid: i32,
     pub facing: i32,
 }
@@ -136,9 +137,14 @@ pub struct CPoint {
     pub throwvy: f64,
     pub throwvz: f64,
     pub hurtable: i32,
+    /// -1 means unspecified (use GC.default); present in data as 0/1
+    pub hurtable_set: bool,
     pub throwinjury: f64,
     pub dircontrol: i32,
     pub cover: i32,
+    /// Victim hurt reaction frames while caught (cpoint kind 2)
+    pub fronthurtact: i32,
+    pub backhurtact: i32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -310,6 +316,7 @@ fn parse_frame(v: &Value) -> FrameData {
                 action: i32_of(&op["action"]),
                 dvx: f64_of(&op["dvx"]),
                 dvy: f64_of(&op["dvy"]),
+                dvz: f64_of(&op["dvz"]),
                 oid: i32_of(&op["oid"]),
                 facing: i32_of(&op["facing"]),
             });
@@ -330,9 +337,12 @@ fn parse_frame(v: &Value) -> FrameData {
                 throwvy: f64_of(&cp["throwvy"]),
                 throwvz: f64_of(&cp["throwvz"]),
                 hurtable: i32_of(&cp["hurtable"]),
+                hurtable_set: !cp["hurtable"].is_null(),
                 throwinjury: f64_of(&cp["throwinjury"]),
                 dircontrol: i32_of(&cp["dircontrol"]),
                 cover: i32_of(&cp["cover"]),
+                fronthurtact: i32_of(&cp["fronthurtact"]),
+                backhurtact: i32_of(&cp["backhurtact"]),
             });
         }
     }

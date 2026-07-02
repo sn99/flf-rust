@@ -2,8 +2,20 @@
 
 | Entry | Role |
 |-------|------|
-| https://sn99.github.io/flf-rust/game/game.html | **Complete F.LF JS + LF2_19** (true 1-on-1 gameplay) |
-| https://sn99.github.io/flf-rust/rust/ | **Rust/WASM engine** — F.Lobby 0.1 client + lockstep + TU harness; formal bit-identity pending dump runs |
-| https://sn99.github.io/flf-rust/rust/tu_compare.html | TU `game_state` dump compare tool |
+| [Project-F/F.LF](https://github.com/Project-F/F.LF) | Reference JS engine |
+| This repo `src/core_engine` + `src/lf` + `www/` | Rust/WASM port + LF2_19 assets |
+| `tests/parity_surface.rs`, `tests/tu_order.rs` | Shipped-path parity tests |
+| `www/tu_compare.html` | Optional TU dump compare vs JS |
+| `tools/` | F.LF dev tools (converter, unit suite, AI parser) vendored |
 
-See GAP_ANALYSIS.md, PARITY_CHECKLIST.md.
+## Module map (F.LF → Rust)
+
+| F.LF | Port |
+|------|------|
+| `core/*` | `src/core_engine/*` (+ `www/js/network_core.js`, `peer_glue.js`) |
+| `LF/*` | `src/lf/*` |
+| `game/game.js` | `src/lib.rs` `start_game` + `www/js/bootstrap.js` |
+| `core/controller-changer.js` | `src/core_engine/controller_changer.rs` + manager settings UI |
+| `LF/loader.js` | `src/lf/package.rs` / `loader.rs` re-export |
+
+See `GAP_ANALYSIS.md`, `PARITY_CHECKLIST.md`.

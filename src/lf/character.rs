@@ -46,6 +46,14 @@ pub struct Character {
     pub caught_vdir: f64,
     pub caught_throwz: Option<f64>,
     pub catch_frame_tu: bool,
+    /// F.LF stat.attack — damage dealt (summary dialog)
+    pub stat_attack: f64,
+    /// F.LF is_npc — spawned minion; stats roll up to parent
+    pub is_npc: bool,
+    /// F.LF parent uid for NPC rollup
+    pub parent_uid: Option<u32>,
+    /// F.LF combo_buffer.combo — persistent until consumed (dir keys excluded)
+    pub combo_buffer: Option<String>,
 }
 
 impl Character {
@@ -87,6 +95,95 @@ impl Character {
             caught_vdir: 0.0,
             caught_throwz: None,
             catch_frame_tu: false,
+            stat_attack: 0.0,
+            is_npc: false,
+            parent_uid: None,
+            combo_buffer: None,
+        }
+    }
+
+    /// F.LF character.attacked — credit damage to stat.attack (or parent if NPC)
+    pub fn attacked(&mut self, inj: f64) -> bool {
+        if inj > 0.0 {
+            self.stat_attack += inj;
+            true
+        } else {
+            inj == 0.0
+        }
+    }
+
+    /// F.LF character.offset_attack — subtract from stat when NPC damages via parent attribution
+    pub fn offset_attack(&mut self, inj: f64) {
+        self.stat_attack -= inj;
+    }
+
+    /// F.LF character.killed — increment kill counter (NPC rolls to parent via match)
+    pub fn killed(&mut self) {
+        self.base.kills += 1;
+    }
+
+    /// F.LF character.die — notify attacker they scored a kill
+    pub fn die(&mut self, attacker_is_npc: bool) {
+        let _ = attacker_is_npc;
+        self.base.dead = true;
+    }
+
+    /// F.LF character.heal — queue heal pool drained in recover_tu
+    pub fn heal(&mut self, amount: f64) -> bool {
+        self.base.effect.heal = amount;
+        true
+    }
+
+    /// F.LF character.hold_weapon
+    pub fn hold_weapon(&mut self, wea_uid: u32, oid: i32) {
+        self.hold_weapon = Some(wea_uid);
+        self.hold_weapon_oid = oid;
+        self.base.holding_uid = Some(wea_uid);
+    }
+
+    /// F.LF character.drop_weapon — clears hold; match applies velocities on weapon
+    pub fn drop_weapon_clear(&mut self) {
+        self.hold_weapon = None;
+        self.hold_weapon_oid = 0;
+        self.base.holding_uid = None;
+        self.base.hold_type.clear();
+    }
+
+    /// F.LF character.combo_update — state combo event then generic; persist unconsumed non-dir combos
+    pub fn combo_update(&mut self) {
+        let mut k = self.combo_buffer.clone().or_else(|| self.combo.match_combo());
+        let mut jump_att_degrade = false;
+        if k.as_deref() == Some("jump-att") {
+            k = Some("jump".into());
+            jump_att_degrade = true;
+        }
+        let k_ref = k.as_deref();
+        let res1 = crate::lf::character_states::dispatch(self, "combo", k_ref)
+            == Some(crate::lf::character_states::COMBO_CONSUMED);
+        let res2 = if !res1 {
+            crate::lf::character_states::dispatch(self, "combo", k_ref)
+                == Some(crate::lf::character_states::COMBO_CONSUMED)
+        } else {
+            false
+        };
+        let _ = crate::lf::character_states::dispatch(self, "post_combo", None);
+        if jump_att_degrade {
+            if res1 || res2 {
+                self.combo_buffer = Some("att".into());
+            }
+        } else {
+            let dir = matches!(
+                k_ref,
+                Some("left") | Some("right") | Some("up") | Some("down")
+            );
+            if res1 || res2 || dir {
+                self.combo_buffer = None;
+                if res1 || res2 {
+                    self.combo.clear();
+                }
+            } else if let Some(name) = k {
+                self.combo_buffer = Some(name);
+            }
         }
     }
 
@@ -143,14 +240,16 @@ impl Character {
         self.base.trans_frame(12, 20); // fall
     }
 
-    /// F.LF caught_release
+    /// F.LF caught_release — frame 181 + small knockback effect
     pub fn caught_release(&mut self) {
         self.base.held_by = None;
         self.caught_throwz = None;
         self.catch_frame_tu = false;
-        if self.base.state() == 10 {
-            self.base.trans_frame(212, 15); // F.LF often 212 after release
-        }
+        self.base.trans_frame(181, 22);
+        self.base.effect.dvx = 3.0;
+        self.base.effect.dvy = -3.0;
+        self.base.effect.timein = -1;
+        self.base.effect.timeout = 0;
     }
 
     pub fn caught_cpointkind(&self) -> i32 {
@@ -158,6 +257,110 @@ impl Character {
             .frame_data()
             .and_then(|f| f.cpoint.as_ref().map(|c| c.kind))
             .unwrap_or(0)
+    }
+
+    /// F.LF caught_cpointhurtable — hurtable on *this* object's frame cpoint
+    /// (call on catcher while victim is in state 10).
+    pub fn caught_cpointhurtable(&self) -> i32 {
+        if let Some(cp) = self.base.frame_data().and_then(|f| f.cpoint.as_ref()) {
+            if cp.hurtable_set {
+                return cp.hurtable;
+            }
+        }
+        global::DEFAULT_CPOINT_HURTABLE
+    }
+
+    /// F.LF `character.hit` combat path (kinds 0/4/9-style).
+    /// Front defend (state 7): reduced injury, frames 111/112, effect_create absorb — **never fall()** unless lethal.
+    /// Returns (accepted, drop_weapon, defended).
+    pub fn apply_combat_hit(
+        &mut self,
+        injury: f64,
+        fall_add: f64,
+        mut ef_dvx: f64,
+        mut ef_dvy: f64,
+        attacker_x: f64,
+        effect_num: i32,
+        bdefend_add: f64,
+        itr_kind: i32,
+    ) -> (bool, bool, bool) {
+        let st = self.base.state();
+        if st == 14 {
+            return (false, false, false);
+        }
+        if st == 13 && effect_num == 30 {
+            return (false, false, false);
+        }
+        if (st == 18 || st == 19) && (effect_num == 20 || effect_num == 21) {
+            return (false, false, false);
+        }
+
+        let front = (attacker_x > self.base.ps.x) == (self.base.facing > 0);
+        let defending_front = st == 7 && front;
+
+        if defending_front {
+            let mut inj = 0.0;
+            if injury != 0.0 {
+                inj = injury * global::DEFEND_INJURY_FACTOR;
+            }
+            if bdefend_add != 0.0 {
+                self.base.bdefend += bdefend_add;
+            }
+            if self.base.bdefend > global::DEFEND_BREAK_LIMIT {
+                self.base.trans_frame(112, 20);
+            } else {
+                self.base.trans_frame(111, 20);
+            }
+            // F.LF defend absorb on ef_dvx; dvy forced 0
+            if ef_dvx != 0.0 {
+                let absorb = if ef_dvx.abs() >= 15.0 { 5.0 } else { 0.0 };
+                ef_dvx += if ef_dvx > 0.0 { -absorb } else { absorb };
+            }
+            ef_dvy = 0.0;
+            let vanish = if self.base.frame.n == 112 || self.base.trans.next == 112 {
+                4
+            } else {
+                3
+            };
+            if self.base.hp - inj <= 0.0 {
+                // lethal through defend → falldown only
+                let (drop_w, _) = self.base.injure(
+                    inj,
+                    fall_add.max(global::DEFAULT_FALL),
+                    ef_dvx,
+                    ef_dvy,
+                    attacker_x,
+                    effect_num,
+                    itr_kind,
+                );
+                return (true, drop_w, false);
+            }
+            self.base.defend_injury(inj);
+            self.base.effect_create(effect_num.max(0), vanish, ef_dvx, ef_dvy);
+            return (true, false, true);
+        }
+
+        // non-defend / back-hit: lose defend ability, full fall path
+        self.base.bdefend = 45.0;
+        let fall = if fall_add != 0.0 {
+            fall_add
+        } else {
+            global::DEFAULT_FALL
+        };
+        let (drop_w, _) = self.base.injure(
+            injury,
+            fall,
+            ef_dvx,
+            if ef_dvy != 0.0 {
+                ef_dvy
+            } else {
+                global::DEFAULT_FALL_DVY
+            },
+            attacker_x,
+            effect_num,
+            itr_kind,
+        );
+        (true, drop_w, false)
     }
 
     pub fn queue_ai_keys(&mut self, keys: Vec<String>) {
@@ -506,19 +709,15 @@ impl Character {
             _ => {}
         }
 
-        if self.base.counter_dead_blink >= 0 {
-            self.base.counter_dead_blink += 1;
-            self.base.effect.blink = true;
-            if self.base.counter_dead_blink >= 30 {
-                self.base.removed = true;
-                self.base.dead = true;
-                self.base.sp.visible = false;
-            }
-        }
+        // dead_blink / disappear counters tick exactly once in LivingObject::recover_tu
+        // (via physics_tu) — do not increment here (avoids 2×/TU vs F.LF)
 
         self.id_frame_hook();
         let was_air = self.base.ps.y < 0.0 || self.base.ps.vy < 0.0;
         self.base.physics_tu(bg_z, bg_w);
+        if self.base.removed {
+            self.base.dead = true;
+        }
         if was_air && self.base.ps.y >= 0.0 && self.base.ps.vy >= 0.0 {
             if let Some(nf) = crate::lf::character_states::dispatch(self, "fell_onto_ground", None) {
                 if nf > 0 && nf != crate::lf::character_states::COMBO_CONSUMED {
@@ -630,33 +829,29 @@ impl Character {
                 self.combo.feed(name);
             }
         }
-        // F.LF states[N]('combo', K) for basic keys (run stop etc.)
-        for (pressed, name) in [(defend, "def"), (jump, "jump"), (att, "att")] {
-            if pressed {
-                if let Some(r) = crate::lf::character_states::dispatch(self, "combo", Some(name)) {
-                    if r == crate::lf::character_states::COMBO_CONSUMED {
-                        self.running = false;
-                        return;
-                    }
-                }
-            }
-        }
-        if left && !self.last_left {
-            let _ = crate::lf::character_states::dispatch(self, "combo", Some("left"));
-        }
-        if right && !self.last_right {
-            let _ = crate::lf::character_states::dispatch(self, "combo", Some("right"));
-        }
         if let Some(name) = self.combo.match_combo() {
+            self.combo_buffer = Some(name);
+        } else if defend {
+            self.combo_buffer = Some("def".into());
+        } else if jump {
+            self.combo_buffer = Some("jump".into());
+        } else if att {
+            self.combo_buffer = Some("att".into());
+        } else if left && !self.last_left {
+            self.combo_buffer = Some("left".into());
+        } else if right && !self.last_right {
+            self.combo_buffer = Some("right".into());
+        }
+        // F.LF combo_update: one emission path per TU
+        if let Some(name) = self.combo_buffer.clone() {
             if let Some(tag) = global::combo_tag(&name) {
-                // DJA revert transform for Rudolf copies
                 if name == "DJA" && self.is_rudolf_transform {
                     let _ = crate::lf::character_ids::id_update(self, "revert_transform", None);
                     self.combo.clear();
+                    self.combo_buffer = None;
                     self.running = false;
                     return;
                 }
-                // Deep faces along Fj direction
                 if tag == "hit_Fj" && self.base.id == 1 {
                     if name.contains('>') || name == "D>J" || name == "D>AJ" {
                         self.switch_dir("right");
@@ -665,8 +860,8 @@ impl Character {
                     }
                 }
                 if crate::lf::character_ids::id_update(self, "generic_combo", Some(tag)) {
-                    // blocked (e.g. Louis hit_ja)
                     self.combo.clear();
+                    self.combo_buffer = None;
                     return;
                 }
                 if self.base.try_hit_tag(tag) {
@@ -679,11 +874,21 @@ impl Character {
                         .unwrap_or(true);
                     if clear {
                         self.combo.clear();
+                        self.combo_buffer = None;
                     }
                     self.running = false;
                     return;
                 }
             }
+        }
+        self.combo_update();
+        if matches!(
+            self.combo_buffer.as_deref(),
+            None | Some("left") | Some("right") | Some("up") | Some("down")
+        ) {
+            // dir keys never persist; skill may remain in buffer
+        } else if self.combo_buffer.is_none() {
+            self.running = false;
         }
 
         match state {

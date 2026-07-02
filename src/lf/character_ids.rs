@@ -126,28 +126,8 @@ pub fn id_tu(ch: &mut Character) {
     let pn = ch.base.frame.pn;
     let st = ch.base.state();
 
-    // disappear blink sequence (Rudolf / generic)
-    if ch.base.counter_disappear >= 0 {
-        ch.base.counter_disappear += 1;
-        let c = ch.base.counter_disappear;
-        // GC.effect.disappear typically shadow_blink ~ body_blink windows
-        const SHADOW_BLINK: i32 = 8;
-        const BODY_BLINK: i32 = 16;
-        if c < SHADOW_BLINK {
-            ch.base.sp.visible = false;
-        } else if c < BODY_BLINK {
-            ch.base.sp.visible = c % 2 == 0;
-            ch.base.effect.blink = true;
-        } else if c == BODY_BLINK {
-            ch.base.sp.visible = true;
-            ch.base.effect.blink = true;
-        } else {
-            // dismiss
-            ch.base.counter_disappear = -1;
-            ch.base.sp.visible = true;
-            ch.base.effect.blink = false;
-        }
-    }
+    // disappear / dead_blink: only LivingObject::tick_disappear_counters (F.LF 120/150)
+    // — not here (Character::tu also runs recover_tu; double-step was a parity bug)
 
     match id {
         1 => {

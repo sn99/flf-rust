@@ -1,16 +1,15 @@
-# Parity checklist — flf-rust `/rust/` vs Project-F/F.LF
+# Parity checklist
 
-| # | Item | Status |
-|---|------|--------|
-| 1 | Character state machine | **~98%** |
-| 2 | Match TU_trans order | **~95%** transit→tasks→TU→AI end |
-| 3 | Hit / defend / catch | **~94%** front defend, caught_* |
-| 4 | Weapons / specials / chase / leaving | **~94%** |
-| 5 | Background parallax | **~90%** |
-| 6 | AI AIin scripts | **~90%** |
-| 7 | Manager / F-keys / F.Lobby | **~92%** |
-| 8 | Canvas + DOM sprites | **Yes** |
-| 9 | Stage mode | **Shell only** |
-| 10 | TU bit-identity cert | **Harness; not green** |
-
-**Formal:** near-complete playable 1v1 port; not certified bit-identical.
+| Item | Status |
+|------|--------|
+| Core: animator, collision, combodec, controller, recorder, changer, math, resourcemap, sprite canvas/DOM, support, util, effects-pool, network sync | **Yes** |
+| LF: livingobject, character (+states/ids), weapon (+states), specialattack (+states), effect/pool, background, scene, mechanics, match, manager UI, AI bridge, soundpack, network, factories, loader/package, touchcontroller, transistor | **Yes** |
+| Shared hit/defend (`apply_combat_hit`) | **Yes** |
+| Broken defend no fall overwrite | **Yes** |
+| Stuck timers / disappear / gameover +30 / blocking_xz | **Yes** |
+| Stats: attack / kill / NPC offset + summary dialog | **Yes** |
+| `show_hp` dual bar (hp_bound + heal flash) | **Yes** |
+| `combo_update` persistence | **Yes** |
+| `get_pos`, `create_non_player_characters` (oid 5), multi-opoint fan | **Yes** |
+| Dev tools (`tools/`) | **Vendored** |
+| Bit-dump / full LF2 campaign stages | **Non-goal** (upstream incomplete too) |

@@ -97,6 +97,21 @@ impl Background {
         x < -margin || x > self.width + margin
     }
 
+    /// F.LF background.get_pos(rx, rz) — absolute feet position from [0,1] ratios
+    pub fn get_pos(&self, rx: f64, rz: f64) -> (f64, f64, f64) {
+        let x = rx.clamp(0.0, 1.0) * self.width;
+        let z0 = self.zboundary.0;
+        let z1 = self.zboundary.1;
+        let z = z0 + rz.clamp(0.0, 1.0) * (z1 - z0);
+        (x, 0.0, z)
+    }
+
+    /// F.LF background.scroll target clamp helper
+    pub fn scroll_x(&self, focus_x: f64, window_w: f64) -> f64 {
+        let max_scroll = (self.width - window_w).max(0.0);
+        (focus_x - window_w * 0.5).clamp(0.0, max_scroll)
+    }
+
     pub fn draw(&self, ren: &mut CanvasRenderer, time: u32) {
         for layer in &self.layers {
             if layer.cc > 0 {
