@@ -6,17 +6,21 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -33,10 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           SITE="${RUNNER_TEMP}/site"
-          mkdir -p "$SITE" "$SITE/rust"
+          mkdir -p "$SITE/rust"
           git clone --depth 1 https://github.com/Project-F/F.LF.git "${RUNNER_TEMP}/F.LF"
           git clone --depth 1 https://github.com/Project-F/LF2_19.git "${RUNNER_TEMP}/LF2_19"
-          # Strip nested .git so Pages legacy checkout does not treat paths as submodules
           rm -rf "${RUNNER_TEMP}/F.LF/.git" "${RUNNER_TEMP}/LF2_19/.git"
           cp -a "${RUNNER_TEMP}/F.LF/core" "$SITE/"
           cp -a "${RUNNER_TEMP}/F.LF/LF" "$SITE/"
@@ -45,7 +48,7 @@ jobs:
           cp -a "${RUNNER_TEMP}/LF2_19" "$SITE/LF2_19"
           cp -a www/. "$SITE/rust/"
           rm -f "$SITE/rust/pkg/.gitignore"
-          find "$SITE" -name .git -type d -prune -exec rm -rf {} +
+          find "$SITE" -name .git -prune -exec rm -rf {} +
           printf '%s\n' \
             '<!DOCTYPE html><html><head><meta charset=UTF-8>' \
             '<meta http-equiv=refresh content="0;url=game/game.html">' \
@@ -54,10 +57,22 @@ jobs:
             '<body><p><a href="game/game.html">Play F.LF</a> · <a href="rust/">Rust/WASM port</a></p></body></html>' \
             > "$SITE/index.html"
           touch "$SITE/.nojekyll"
+          # sanity: no gitlinks / nested repos
+          ! find "$SITE" -name .git | grep -q .
+          test -f "$SITE/game/game.html"
+          test -f "$SITE/rust/pkg/flf_bg.wasm"
+          test -f "$SITE/LF2_19/manifest.js"
 
-      - name: Publish to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+      - uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ${{ runner.temp }}/site
-          force_orphan: false
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
