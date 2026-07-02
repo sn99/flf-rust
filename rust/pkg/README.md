@@ -4,7 +4,13 @@ Rust/WASM rewrite of [Project-F/F.LF](https://github.com/Project-F/F.LF) with [L
 
 ## Play
 
-**https://sn99.github.io/flf-rust/** — Pages deploy serves the classic JS engine at `game/game.html` for reference parity with https://project-f.github.io/F.LF/game/game.html.
+**https://sn99.github.io/flf-rust/** → `game/game.html` (classic [F.LF](https://github.com/Project-F/F.LF) + LF2_19), same entry style as https://project-f.github.io/F.LF/game/game.html.
+
+| Path | What |
+|------|------|
+| [/](https://sn99.github.io/flf-rust/) | Redirect → classic game |
+| [/game/game.html](https://sn99.github.io/flf-rust/game/game.html) | Canonical JS engine |
+| [/rust/](https://sn99.github.io/flf-rust/rust/) | Rust/WASM port (`www/`) |
 
 Local Rust/WASM build:
 
@@ -13,6 +19,8 @@ wasm-pack build --target web --out-dir www/pkg --release
 cd www && python3 -m http.server 8080
 # open http://localhost:8080/
 ```
+
+Push to `main` runs CI. Update `gh-pages` (classic `/game` + `/rust` mirror of `www/`) when shipping the public site.
 
 ## Layout
 
