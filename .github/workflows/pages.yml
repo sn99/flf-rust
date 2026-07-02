@@ -6,30 +6,55 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: www
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Build WASM into www/pkg
+        run: wasm-pack build --target web --out-dir www/pkg --release
+
+      - name: Assemble site (classic F.LF + /rust port)
+        run: |
+          set -euo pipefail
+          SITE="${RUNNER_TEMP}/site"
+          mkdir -p "$SITE" "$SITE/rust"
+          git clone --depth 1 https://github.com/Project-F/F.LF.git "${RUNNER_TEMP}/F.LF"
+          git clone --depth 1 https://github.com/Project-F/LF2_19.git "${RUNNER_TEMP}/LF2_19"
+          cp -a "${RUNNER_TEMP}/F.LF/core" "$SITE/"
+          cp -a "${RUNNER_TEMP}/F.LF/LF" "$SITE/"
+          cp -a "${RUNNER_TEMP}/F.LF/game" "$SITE/"
+          cp -a "${RUNNER_TEMP}/F.LF/third_party" "$SITE/"
+          cp -a "${RUNNER_TEMP}/LF2_19" "$SITE/LF2_19"
+          cp -a www/. "$SITE/rust/"
+          rm -f "$SITE/rust/pkg/.gitignore"
+          printf '%s\n' \
+            '<!DOCTYPE html><html><head><meta charset=UTF-8>' \
+            '<meta http-equiv=refresh content="0;url=game/game.html">' \
+            '<script>location.replace("game/game.html"+location.search+location.hash)</script>' \
+            '<title>F.LF</title></head>' \
+            '<body><p><a href="game/game.html">Play F.LF</a> · <a href="rust/">Rust/WASM port</a></p></body></html>' \
+            > "$SITE/index.html"
+          touch "$SITE/.nojekyll"
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ runner.temp }}/site
+          force_orphan: false
